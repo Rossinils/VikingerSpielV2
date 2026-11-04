@@ -5,7 +5,7 @@ extends RefCounted
 ## Wackeln, Aufblitzen und kurzes Einfrieren. Reine Anzeige, rechnet nichts und kennt keine Kampfregeln.
 ## Die Kampfansicht (hud.gd) füttert das hier aus den Ereignissen von Combat.events und zeichnet es über die Figuren.
 
-const FEET := 120.0
+const FEET := 140.0
 
 ## Wirkung je Fertigkeit: [beim Ausholen, beim Treffer]. Leer = nichts.
 ## Ausholen: shield, notes (Lied), warsong, wail, ink, crush. Treffer: slash, chop, bash, bite.
@@ -123,7 +123,20 @@ func shake(amp: float, dur: float) -> void:
 		_shake_dur = dur
 
 
+var _flash_stamps: Array = []
+
+
+## Vollbildblitz: bei „Wackeln: aus“ gar nicht, bei „schwach“ halb so hell, nie mehr als drei in der Sekunde (SPEC 3.9, K8).
 func flash(col: Color, dur: float) -> void:
+	if Settings.shake == 0:
+		return
+	var now := Time.get_ticks_msec()
+	_flash_stamps = _flash_stamps.filter(func(t: int) -> bool: return now - t < 1000)
+	if _flash_stamps.size() >= 3:
+		return
+	_flash_stamps.append(now)
+	if Settings.shake == 1:
+		col.a *= 0.5
 	_flash_col = col
 	_flash_t = dur
 	_flash_dur = dur
@@ -135,6 +148,29 @@ func show_banner(skill_name: String, who: String, side: int, icon: String = "") 
 
 func show_big(text: String, sub: String, col: Color, dur: float = 2.0) -> void:
 	big = {"text": text, "sub": sub, "col": col, "t": dur, "dur": dur}
+
+
+## Mit der Regie (scripts/fight_director.gd) liefert sie die Uhren: die Wirkungen laufen in Bühnenzeit (im Standbild stehen sie, in der
+## Zeitlupe gehen sie langsamer), Banner, Ansagen, Blitz und Wackeln in Echtzeit. Standbild, Zeitlupe und Zoom der alten Fassung entfallen.
+var external_clock := false
+
+
+func tick_ext(stage_dt: float, real_dt: float) -> void:
+	for it in items:
+		it["age"] = float(it["age"]) + stage_dt
+		if String(it["k"]) == "cue" and float(it["age"]) >= 0.0 and not bool(it.get("done", false)):
+			it["done"] = true
+			_do_cue(it)
+	items = items.filter(func(d: Dictionary) -> bool: return float(d["age"]) <= float(d["dur"]) and not bool(d.get("done", false)))
+	if not banner.is_empty():
+		banner["t"] = float(banner["t"]) - real_dt
+		if float(banner["t"]) <= 0.0:
+			banner = {}
+	if not big.is_empty():
+		big["t"] = float(big["t"]) - real_dt
+		if float(big["t"]) <= 0.0:
+			big = {}
+	_flash_t = maxf(_flash_t - real_dt, 0.0)
 
 
 ## Zeit vergeht; false, solange das Bild kurz eingefroren ist (dann soll auch die Anzeige warten).
@@ -200,12 +236,23 @@ func flash_color() -> Color:
 	return Color(_flash_col, _flash_col.a * _flash_t / maxf(_flash_dur, 0.01))
 
 
-func draw(ci: CanvasItem) -> void:
+## Maßstab der Wirkungen um ihren Ankerpunkt: die Kampffiguren sind doppelt so groß wie früher, die Wirkungen wachsen mit.
+static var local_scale := 1.7  # mit den Rig-Figuren (kleiner als die doppelten alten) setzt der Hud 1,36
+const LOCAL_KINDS := ["slash", "bash", "bite", "heal", "notes", "shield", "ring", "spark", "muzzle", "star"]
+
+
+## base: die Kamera der Bühne (Wackeln, Schub); sie muss hier mitgegeben werden, weil jede Wirkung ihre eigene Matrix setzt.
+func draw(ci: CanvasItem, base: Transform2D = Transform2D.IDENTITY) -> void:
 	for it in items:
 		var age := float(it["age"])
 		if age < 0.0:
 			continue
 		var u := clampf(age / float(it["dur"]), 0.0, 1.0)
+		var local: bool = LOCAL_KINDS.has(String(it["k"])) and it.has("x") and it.has("y")
+		if local:
+			var ax := float(it["x"])
+			var ay := float(it["y"])
+			ci.draw_set_transform_matrix(base * Transform2D(Vector2(local_scale, 0.0), Vector2(0.0, local_scale), Vector2(ax * (1.0 - local_scale), ay * (1.0 - local_scale))))
 		match String(it["k"]):
 			"slash":
 				_slash(ci, it, u)
@@ -235,6 +282,26 @@ func draw(ci: CanvasItem) -> void:
 				_muzzle(ci, it, u)
 			"spark":
 				_spark(ci, it, u)
+			"star":
+				_star(ci, it, u)
+		if local:
+			ci.draw_set_transform_matrix(base)
+
+
+## Stern am Einschlag: n kurze Strahlen, die schnell auseinanderfliegen und verblassen (Stufe 1: 4 x 9 px, 2: 6 x 12, 3 und 4: 12 x 22 und 12 x 12).
+func _star(ci: CanvasItem, it: Dictionary, u: float) -> void:
+	var c := Vector2(float(it["x"]), float(it["y"]))
+	var n := int(it.get("n", 6))
+	var r := float(it.get("r", 12.0))
+	var col: Color = it.get("col", Color(1.0, 0.95, 0.75))
+	var rot := float(it.get("rot", 0.0))
+	var inner := r * (0.25 + 0.6 * u)
+	var outer := r * (0.5 + 0.9 * u)
+	var al := 1.0 - u * u
+	for i in n:
+		var ang := rot + TAU * float(i) / float(n)
+		var dv := Vector2(cos(ang), sin(ang))
+		ci.draw_line(c + dv * inner, c + dv * outer, Color(col, col.a * al), 1.0 if r < 15.0 else 2.0)
 
 
 func _slash(ci: CanvasItem, it: Dictionary, u: float) -> void:
@@ -278,30 +345,30 @@ func _bash(ci: CanvasItem, it: Dictionary, u: float) -> void:
 func _arrow(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var from := Vector2(float(it["x"]), float(it["y"]))
 	var to := Vector2(float(it["x2"]), float(it["y2"]))
-	var pos := from.lerp(to, u) + Vector2(0.0, -9.0 * sin(PI * u))
+	var pos := from.lerp(to, u) + Vector2(0.0, -16.0 * sin(PI * u))
 	var slope := (to - from).normalized() + Vector2(0.0, -0.5 * cos(PI * u))
 	var dv := slope.normalized()
 	var al := 1.0 - (clampf((u - 0.6) / 0.4, 0.0, 1.0) if bool(it.get("miss", false)) else 0.0)
-	var tail := pos - dv * 9.0
-	ci.draw_line(tail, pos, Color(0.8, 0.64, 0.4, al), 1.0)
-	ci.draw_line(pos, pos + dv * 2.0, Color(0.92, 0.93, 0.97, al), 2.0)
-	ci.draw_line(tail, tail + dv.rotated(2.5) * 3.0, Color(0.6, 0.72, 0.5, al), 1.0)
-	ci.draw_line(tail, tail + dv.rotated(-2.5) * 3.0, Color(0.6, 0.72, 0.5, al), 1.0)
+	var tail := pos - dv * 16.0
+	ci.draw_line(tail, pos, Color(0.8, 0.64, 0.4, al), 2.0)
+	ci.draw_line(pos, pos + dv * 4.0, Color(0.92, 0.93, 0.97, al), 3.0)
+	ci.draw_line(tail, tail + dv.rotated(2.5) * 5.0, Color(0.6, 0.72, 0.5, al), 2.0)
+	ci.draw_line(tail, tail + dv.rotated(-2.5) * 5.0, Color(0.6, 0.72, 0.5, al), 2.0)
 
 
 func _whip(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var a := Vector2(float(it["x"]), float(it["y"]))
 	var b := Vector2(float(it["x2"]), float(it["y2"]))
-	var c := Vector2((a.x + b.x) * 0.5, minf(a.y, b.y) - 38.0)
+	var c := Vector2((a.x + b.x) * 0.5, minf(a.y, b.y) - 70.0)
 	var p := clampf(u / 0.5, 0.0, 1.0)
 	var al := 1.0 - clampf((u - 0.6) / 0.4, 0.0, 1.0)
 	var pts := PackedVector2Array()
 	for k in 14:
 		var t := p * float(k) / 13.0
 		pts.append(a.lerp(c, t).lerp(c.lerp(b, t), t))
-	ci.draw_polyline(pts, Color(0.23, 0.15, 0.32, al), 5.0)
-	ci.draw_polyline(pts, Color(0.42, 0.29, 0.54, al), 3.0)
-	ci.draw_polyline(pts, Color(0.54, 0.38, 0.65, al), 1.0)
+	ci.draw_polyline(pts, Color(0.23, 0.15, 0.32, al), 8.0)
+	ci.draw_polyline(pts, Color(0.42, 0.29, 0.54, al), 5.0)
+	ci.draw_polyline(pts, Color(0.54, 0.38, 0.65, al), 2.0)
 	if u > 0.5:
 		var q := (u - 0.5) / 0.5
 		ci.draw_arc(b, 3.0 + 12.0 * q, 0.0, TAU, 18, Color(0.55, 0.4, 0.7, 1.0 - q), 2.0)
@@ -360,12 +427,12 @@ func _ink(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var al := 0.55 * (1.0 - u * u)
 	for i in 16:
 		var cx := 22.0 + float((i * 53) % 215)
-		var cy := 62.0 + float((i * 37) % 56)
+		var cy := 50.0 + float((i * 37) % 96)
 		var r := (7.0 + float((i * 7) % 9)) * (0.4 + u * 1.2)
 		ci.draw_circle(Vector2(cx, cy), r, Color(0.11, 0.05, 0.19, al))
 	for i in 8:
 		var bx := 30.0 + float((i * 71) % 190)
-		var by := 110.0 - u * (30.0 + float((i * 13) % 25))
+		var by := 150.0 - u * (40.0 + float((i * 13) % 35))
 		ci.draw_arc(Vector2(bx, by), 1.0 + float(i % 3), 0.0, TAU, 8, Color(0.6, 0.5, 0.8, (1.0 - u) * 0.8), 1.0)
 
 
@@ -383,9 +450,9 @@ func _bullet(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var pos := from.lerp(to, u)
 	var dv := (to - from).normalized()
 	var al := 1.0 - (clampf((u - 0.7) / 0.3, 0.0, 1.0) if bool(it.get("miss", false)) else 0.0)
-	ci.draw_line(pos - dv * 16.0, pos, Color(1.0, 0.85, 0.4, 0.45 * al), 3.0)
-	ci.draw_line(pos - dv * 12.0, pos, Color(1.0, 0.97, 0.8, al), 1.0)
-	ci.draw_rect(Rect2(roundf(pos.x) - 1, roundf(pos.y) - 1, 2, 2), Color(1, 1, 1, al))
+	ci.draw_line(pos - dv * 28.0, pos, Color(1.0, 0.85, 0.4, 0.45 * al), 5.0)
+	ci.draw_line(pos - dv * 22.0, pos, Color(1.0, 0.97, 0.8, al), 2.0)
+	ci.draw_rect(Rect2(roundf(pos.x) - 2, roundf(pos.y) - 2, 4, 4), Color(1, 1, 1, al))
 
 
 ## Mündungsfeuer und Pulverrauch an der Waffe.
@@ -429,6 +496,6 @@ func _spark(ci: CanvasItem, it: Dictionary, u: float) -> void:
 func _dust(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var x := float(it["x"])
 	for i in 6:
-		var px := x - 15.0 + float(i) * 6.0 + (u * 8.0 if i % 2 == 0 else -u * 8.0)
+		var px := x - 28.0 + float(i) * 11.0 + (u * 12.0 if i % 2 == 0 else -u * 12.0)
 		var py := FEET - 2.0 - u * (5.0 + float(i % 3) * 3.0)
-		ci.draw_circle(Vector2(px, py), 2.0 + 3.0 * u, Color(0.45, 0.33, 0.22, 0.6 * (1.0 - u)))
+		ci.draw_circle(Vector2(px, py), 3.0 + 4.0 * u, Color(0.45, 0.33, 0.22, 0.6 * (1.0 - u)))

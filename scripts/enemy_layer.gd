@@ -31,6 +31,10 @@ const PLACE := {
 	8: {"x": 312.0, "dy": 4.0, "bob": 1},
 	12: {"x": 304.0, "dy": 2.0, "bob": 1},
 }
+## Ereignisse auf der Strecke (assets/route_props.png, tools/make_route_props.py): Zelle ROUTE_CELL0 + (Id − ROUTE_FIRST),
+## gleiche Zellgröße und gleicher Anker; sie treiben neben dem Schiff und ziehen beim Weiterfahren nach links davon.
+const ROUTE_CELL0 := 100
+const ROUTE_PLACE := {"x": 96.0, "dy": 3.0}  # links neben dem Heck: rechts liegt die Seekarte darüber
 ## x der drei Tentakel (vor dem Schiff)
 const TENT_X := [196.0, 286.0, 332.0]
 const TENT_VARIANT := [0, 1, 2]
@@ -42,6 +46,7 @@ var front := false
 var back_y := Waves.WATER_Y - 12.0
 
 var _tex: Texture2D
+var _tex_route: Texture2D
 var _no_intro := false
 var _cell := -1  # Zelle des gezeigten Bildes, -1 nichts
 var _t := 0.0  # Zeit seit Beginn der Begegnung
@@ -58,6 +63,8 @@ func _ready() -> void:
 		set_process(false)  # ohne Bild nichts laden und nichts rechnen
 		return
 	_tex = load("res://assets/enemies.png")
+	if ResourceLoader.exists("res://assets/route_props.png"):
+		_tex_route = load("res://assets/route_props.png")
 	_no_intro = "--shotenc" in OS.get_cmdline_user_args()  # Screenshot der ersten Begegnungsbilder: gleich an Ort und Stelle
 
 
@@ -66,6 +73,8 @@ func _process(delta: float) -> void:
 		return
 	var enc := voy.encounter
 	var want: int = int(CELL_OF.get(enc, -1)) if enc >= 0 else -1
+	if Encounters.is_route(enc) and not front and _tex_route != null:
+		want = ROUTE_CELL0 + enc - Encounters.ROUTE_FIRST
 	if want != _cell:
 		if want >= 0:
 			_cell = want
@@ -140,6 +149,14 @@ func _draw() -> void:
 	if front:
 		if _kraken:
 			_draw_tentacles()
+		return
+	if _cell >= ROUTE_CELL0:
+		var ri := _cell - ROUTE_CELL0
+		var rx := float(ROUTE_PLACE["x"])
+		var roff := _slide_offset()
+		var ry := roundf(back_y + float(ROUTE_PLACE["dy"]) + Waves.height(rx, 0) * 0.5) + roff.y
+		var rsrc := Rect2(Vector2((ri % COLS) * CELL.x, (ri / COLS) * CELL.y), Vector2(CELL))
+		draw_texture_rect_region(_tex_route, Rect2(Vector2(roundf(rx) + roff.x, ry) - Vector2(ANCHOR), Vector2(CELL)), rsrc)
 		return
 	var p: Dictionary = PLACE[_cell]
 	var x := float(p["x"])

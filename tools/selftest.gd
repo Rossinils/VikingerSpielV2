@@ -2094,6 +2094,9 @@ func _init() -> void:
 	var mguard := 0
 	while not mv.ended and mguard < 3000:
 		mguard += 1
+		if mv.automat_open:
+			play_automat(mv)  # ein Automat im Hafen (Spelunke) oder nach einem Sieg: wie ein Zufallsspieler durchspielen
+			continue
 		if mv.phase == Voyage.Phase.PLAN:
 			if not mv.perk_offer.is_empty():
 				mv.choose_perk(0)
@@ -2110,8 +2113,9 @@ func _init() -> void:
 	check(mv.ended and mv.saga_text != "", "Fahrt endet mit einer Saga")
 	check(not Persist.has_run(), "nach dem Ende ist der laufende Spielstand gelöscht")
 	var mem := Persist.load_memorial()
-	check((mem["runs"] as Array).size() == 1 and String(mem["runs"][0]["saga"]) == mv.saga_text, "Gedenkstein hat die Fahrt aufgenommen")
-	check(int(mem["runs"][0]["n"]) == 1 and (mem["runs"][0]["fallen"] as Array).size() == mv.fallen_names.size(), "Gedenkstein zählt Fahrten und Gefallene")
+	var runs0: Array = mem["runs"]
+	check(runs0.size() == 1 and String(runs0[0]["saga"]) == mv.saga_text, "Gedenkstein hat die Fahrt aufgenommen")
+	check(runs0.size() == 1 and int(runs0[0]["n"]) == 1 and (runs0[0]["fallen"] as Array).size() == mv.fallen_names.size(), "Gedenkstein zählt Fahrten und Gefallene")
 	var mv2 := new_voyage(72)
 	mv2.victory = true
 	mv2.fallen_names.append("Test")
@@ -2283,7 +2287,7 @@ func _init() -> void:
 	s6_bv.automat_close()
 	check(not s6_bv.automat_open, "Freidreh: Schließen")
 	# Begegnung: Lokis Spielschiff
-	check(Encounters.DATA.size() == 10 and String(Encounters.DATA[Encounters.Id.SPIELER]["letter"]) == "L" and Encounters.WEIGHTS.size() == Encounters.DATA.size(), "Lokis Spielschiff: Begegnung mit eigenem Symbol und Gewicht")
+	check(Encounters.DATA.size() == Encounters.Id.size() and String(Encounters.DATA[Encounters.Id.SPIELER]["letter"]) == "L" and Encounters.WEIGHTS.size() == Encounters.DATA.size(), "Lokis Spielschiff: Begegnung mit eigenem Symbol und Gewicht")
 	var s6_early := 0
 	var s6_late := 0
 	for k in 3000:
@@ -2513,5 +2517,139 @@ func _init() -> void:
 		total_enc += g.encounters_done
 	check(problems == 0, "60 Zufallsfahrten ohne Hänger/Inkonsistenz (Siege %d, Niederlagen %d, Begegnungen %d)" % [wins, losses, total_enc])
 
+	_test_route_events()
+
 	print("FEHLER: ", fails)
 	quit(1 if fails > 0 else 0)
+
+
+## Ereignisse auf der Strecke: zwischen zwei Knoten, Halt mitten auf dem Weg, Karten wie bei Begegnungen.
+func _test_route_events() -> void:
+	# Daten: jede Art hat Hinweis, Gewicht 0 auf Knoten, Skalden-Text, die letzte Option kostet nichts
+	var data_ok := true
+	var lore_missing: PackedStringArray = []
+	for id in range(Encounters.ROUTE_FIRST, Encounters.DATA.size()):
+		var def: Dictionary = Encounters.DATA[id]
+		if not Encounters.is_route(id) or int(Encounters.WEIGHTS[id]) != 0:
+			data_ok = false
+		if not Skalde.LINES.has(String(def["intro"])):
+			lore_missing.append(String(def["intro"]))
+		var opts: Array = def["options"]
+		var last: Dictionary = opts[opts.size() - 1]
+		if (last.get("cost", {}) as Dictionary).size() > 0 or last.has("formation") or opts.size() > 3:
+			data_ok = false
+		for o in opts:
+			for out in (o as Dictionary).get("outcomes", []):
+				var lk := String((out as Dictionary).get("lore", ""))
+				if lk != "" and not Skalde.LINES.has(lk):
+					lore_missing.append(lk)
+	check(data_ok and Encounters.HINTS.size() == Encounters.DATA.size(), "Streckenereignisse: %d Arten, nie auf Knoten, höchstens drei Karten, die letzte kostet nichts" % (Encounters.DATA.size() - Encounters.ROUTE_FIRST))
+	check(lore_missing.is_empty(), "Streckenereignisse: der Skalde hat zu jedem Ausgang etwas zu sagen (%s)" % ", ".join(lore_missing))
+	# Würfeln: nur Streckenarten, Totenfloß erst ab Etappe 2, Räuberboote in Piratengewässern häufiger
+	seed(5)
+	var only_route := true
+	var raft1 := 0
+	var hooks_n := 0
+	var hooks_p := 0
+	for k in 600:
+		var a := Encounters.random_route_type(1, 0)
+		only_route = only_route and Encounters.is_route(a)
+		if a == Encounters.Id.TOTENFLOSS:
+			raft1 += 1
+		if Encounters.random_route_type(3, 0) == Encounters.Id.ENTERHAKEN:
+			hooks_n += 1
+		if Encounters.random_route_type(3, 3) == Encounters.Id.ENTERHAKEN:
+			hooks_p += 1
+	check(only_route and raft1 == 0 and hooks_p > hooks_n * 2, "Streckenereignisse: Würfeln nach Etappe und Thema (Enterhaken %d gegen %d in Piratengewässern)" % [hooks_n, hooks_p])
+	# Karte: Ereignisse liegen auf echten Wegen, mitten auf der Strecke, höchstens eines je Startknoten
+	var placed_ok := true
+	var counts: Array[int] = []
+	for sd in 12:
+		var v := new_voyage(900 + sd)
+		var n := 0
+		for c in Voyage.MILES:
+			for i in (v.map[c] as Array).size():
+				var mid: Array = v.node_at(c, i).get("mid", [])
+				if mid.size() > 1:
+					placed_ok = false
+				for ev in mid:
+					n += 1
+					var links: Array = v.node_at(c, i)["links"]
+					if c < 1 or c >= Voyage.MILES - 1 or not links.has(int(ev["to"])) or float(ev["t"]) < 0.3 or float(ev["t"]) > 0.7 or not Encounters.is_route(int(ev["id"])):
+						placed_ok = false
+		counts.append(n)
+		v.free()
+	check(placed_ok and counts.min() >= 3, "Streckenereignisse: je Karte %d bis %d, alle auf Wegen zwischen Meile 1 und 9, bei 30 bis 70 %% des Weges" % [counts.min(), counts.max()])
+	# Fahrt: das Schiff hält am Ereignis an, der Rest der Strecke verfällt; danach geht es auf demselben Kurs weiter
+	var r := new_voyage(950)
+	for c in Voyage.MILES:
+		for i in (r.map[c] as Array).size():
+			r.node_at(c, i)["mid"] = []
+	r.mile = 1
+	r.pos = 0
+	var to := int(r.node_at(1, 0)["links"][0])
+	r.node_at(1, 0)["mid"] = [{"to": to, "id": Encounters.Id.TREIBGUT, "t": 0.5, "done": false}]
+	quiet_node(r, 2, to, 1)
+	r.node_at(2, to)["enc"] = -1
+	r.select_route(to)
+	r.sail_set = 2
+	r.oars_set = 2
+	var pr := r.plan()
+	check(String(pr["stop"]) == "event" and is_equal_approx(float(pr["leg_after"]), 0.5) and (pr["arrivals"] as Array).is_empty(), "volle Fahrt hält mitten auf dem Weg am Ereignis (Vorschau: Halt bei 50 %)")
+	r.confirm()
+	run_until_idle(r)
+	check(r.phase == Voyage.Phase.ENCOUNTER and r.encounter == Encounters.Id.TREIBGUT and is_equal_approx(r.leg, 0.5) and r.route == to, "Halt: Treibgut als Begegnung, das Schiff liegt bei 50 % auf dem Weg")
+	check(bool((r.node_at(1, 0)["mid"] as Array)[0]["done"]), "das Ereignis gilt als erlebt")
+	var last_opt := (Encounters.DATA[Encounters.Id.TREIBGUT]["options"] as Array).size() - 1
+	r.decide_encounter(last_opt)
+	run_until_idle(r)
+	check(r.phase == Voyage.Phase.PLAN and is_equal_approx(r.leg, 0.5) and r.route == to, "nach dem Ereignis: Planung, Kurs bleibt gesetzt")
+	r.confirm()
+	run_until_idle(r)
+	check(r.mile >= 2 and r.encounter != Encounters.Id.TREIBGUT, "danach fährt das Schiff weiter, ohne erneut zu halten")
+	# Speichern und Laden behalten die Ereignisse
+	var sv := new_voyage(960)
+	var before := 0
+	for c in Voyage.MILES:
+		for i in (sv.map[c] as Array).size():
+			before += (sv.node_at(c, i).get("mid", []) as Array).size()
+	var first_ev: Dictionary = {}
+	for c in Voyage.MILES:
+		for i in (sv.map[c] as Array).size():
+			if first_ev.is_empty() and not (sv.node_at(c, i).get("mid", []) as Array).is_empty():
+				first_ev = (sv.node_at(c, i)["mid"] as Array)[0]
+				first_ev["done"] = true
+	var js: Variant = JSON.parse_string(JSON.stringify(sv.to_dict()))
+	var lv := new_voyage(961)
+	lv.resume(js as Dictionary)
+	var after := 0
+	var done_after := 0
+	var types_ok := true
+	for c in Voyage.MILES:
+		for i in (lv.map[c] as Array).size():
+			for ev in (lv.node_at(c, i).get("mid", []) as Array):
+				after += 1
+				if bool(ev["done"]):
+					done_after += 1
+				types_ok = types_ok and Encounters.is_route(int(ev["id"])) and typeof(ev["id"]) == TYPE_INT
+	check(before > 0 and after == before and done_after == 1 and types_ok, "Speichern und Laden: %d Ereignisse, das erlebte bleibt erlebt" % after)
+	# Schiffbrüchiger: ein Mann kommt an Bord, wenn Platz ist; sonst Beute
+	var cv := new_voyage(970)
+	cv.crew[2].state = CrewMember.State.DEAD
+	cv.slot_owner[cv.crew[2].slot] = null
+	cv.crew[2].slot = -1
+	var alive_before := cv.alive_count()
+	var offers_before := cv.recruits.size()
+	cv._apply_fx({"castaway": 1})
+	check(cv.alive_count() == alive_before + 1 and cv.recruits.size() == offers_before, "Schiffbrüchiger: mit Platz kommt ein Mann an Bord, die Anwärter im Hafen bleiben")
+	var full := new_voyage(971)
+	for k in Voyage.RESERVE_MAX + 2:
+		full.reserve.append(CrewMember.new())
+		full.reserve.back().state = CrewMember.State.RESERVE
+	var loot0 := full.loot
+	full._apply_fx({"castaway": 1})
+	check(full.loot > loot0, "Schiffbrüchiger: ohne Platz zeigt er sein gesunkenes Schiff (Beute)")
+	var sight := new_voyage(972)
+	var vis0 := sight.visible_cols()
+	sight._apply_fx({"sight": 1})
+	check(sight.visible_cols() == vis0 + 1, "Flaschenpost: eine Karte bringt eine Meile mehr Sicht")

@@ -42,8 +42,15 @@ var _shot_harbor := false
 var _shot_battle := false  # Screenshot erst in Runde 2 einer Seeschlacht (mit --forceenc=5 --autoplay)
 var _shot_crew := false  # Mannschaftsansicht offen, ein Mann gewählt
 var _shot_fight := 0  # Deckkampf: 1 Aufstellung, 2 Kampf, 3 Kampf mit gewählter Fertigkeit (--shotfight, --shotfight2, --shotfight3)
+var _shot_form := ""  # --shotform=draugr|raeuber|haendler|dorf|kraken: Ort des Deckkampfs bei --shotfight2/3
 var _shot_kraken := 0  # Deckkampf gegen den Kraken: 1 mit Griff und Tinte, 2 Körper offen und spannt sich (--shotkraken, --shotkraken2)
 var _shot_fx := 0  # Deckkampf mitten im Schuss (1, --shotfx), Hieb (2, --shotfx2) oder Musketenschuss (3, --shotfx3)
+var _shot_route := -1  # --shotroute=N: das Schiff fährt los und hält am Streckenereignis N (0 Treibgut ... 9 Fischschwarm)
+var _soak := 0  # --fightsoak=N: N Deckkämpfe nacheinander mit Anzeige und Regie spielen (Dauertest unter Xvfb), danach beenden
+var _soak_done := 0
+var _soak_cd := 0.0
+var _shot_kill := false  # --shotkill: wie --shotfx2, aber der Gegner hat nur noch 1 Kraft und fällt (Todesstoß, Kamera, Zeitlupe)
+var _shot_crit := false  # --shotcrit: der Hieb trifft kritisch
 var _shot_loadout := false  # Aufstellung mit der Fertigkeitenwahl des Musketiers (--shotloadout)
 var _shot_snap := ""  # Deckkampf mit Heldenmut (--shotheroic) oder Zusammenbruch (--shotsnap)
 var _shot_tavern := false  # Hafen mit Taverne und Reserve (--shottavern)
@@ -123,10 +130,22 @@ func _ready() -> void:
 			_shot_fight = int(arg.substr(arg.length() - 1)) if arg != "--shotfight" else 1
 		elif arg == "--shotkraken" or arg == "--shotkraken2":
 			_shot_kraken = int(arg.substr(arg.length() - 1)) if arg != "--shotkraken" else 1
+		elif arg.begins_with("--stagefx="):
+			Settings.stage_fx = int(arg.get_slice("=", 1))  # 0 = Kampfbild schlicht (für Prüfungen)
+		elif arg.begins_with("--shotform="):
+			_shot_form = arg.get_slice("=", 1)
 		elif arg == "--shotloadout":
 			_shot_loadout = true
 		elif arg == "--shotfx" or arg == "--shotfx2" or arg == "--shotfx3":
 			_shot_fx = int(arg.substr(arg.length() - 1)) if arg != "--shotfx" else 1
+		elif arg.begins_with("--shotroute="):
+			_shot_route = int(arg.substr(12))
+		elif arg.begins_with("--fightsoak="):
+			_soak = int(arg.substr(12))
+		elif arg == "--shotkill" or arg == "--shotcrit":
+			_shot_fx = 2
+			_shot_kill = arg == "--shotkill"
+			_shot_crit = arg == "--shotcrit"
 		elif arg == "--shotheroic" or arg == "--shotsnap":
 			_shot_snap = "heroic" if arg == "--shotheroic" else "break"
 		elif arg == "--shottavern":
@@ -245,9 +264,12 @@ func _ready() -> void:
 		_hud.hide_help()
 		_voy.auto_combat = false
 		_voy.stage = 3
-		_voy._enc_pending = Encounters.Id.HAENDLER
-		_voy._advance()
-		_voy.decide_encounter(0)
+		if _shot_form != "" and _shot_fight >= 2:
+			_voy.start_fight(_shot_form, {"source": "encounter"}, 3)
+		else:
+			_voy._enc_pending = Encounters.Id.HAENDLER
+			_voy._advance()
+			_voy.decide_encounter(0)
 		if _shot_fight >= 2:
 			_voy.fight_begin()
 			var guard_n := 0
@@ -260,6 +282,7 @@ func _ready() -> void:
 					_voy.combat.act_foe()
 					guard_n += 1
 			if _shot_fight >= 3 and _voy.combat != null and _voy.combat.state == "hero":
+				_hud._fight_actor = _voy.combat.actor  # sonst setzt die Anzeige die gewählte Fertigkeit im ersten Bild zurück
 				_hud._fight_skill = String(_voy.combat.actor.skills[0])
 	if _shot_kraken > 0:  # Screenshot: der Kraken im Deckkampf
 		_hud.hide_help()
@@ -299,6 +322,13 @@ func _ready() -> void:
 		for pm in _voy.fight_prep["party"]:
 			if pm.role == Roles.Id.MUSKET:
 				_hud._loadout_man = pm
+	if _shot_route >= 0:  # Screenshot: Halt mitten auf dem ersten Weg an einem Streckenereignis
+		_hud.hide_help()
+		var rto := int(_voy.node_at(0, 0)["links"][0])
+		_voy.node_at(0, 0)["mid"] = [{"to": rto, "id": Encounters.ROUTE_FIRST + _shot_route, "t": 0.45, "done": false}]
+		_voy.select_route(rto)
+		_voy.set_dial(0, 2)
+		_voy.confirm()
 	if _shot_fx > 0:  # Screenshot: ein Mann schießt oder schlägt, das Bild kommt mitten in der Wirkung
 		_hud.hide_help()
 		if _shot_fx == 3:
@@ -323,6 +353,10 @@ func _ready() -> void:
 				break
 			xg += 1
 		xc.events.clear()
+		if _shot_kill:
+			xc.foes[0].hp = 1.0
+		if _shot_crit:
+			xc.heroes[0].crit_bonus = 100.0
 		_voy.combat_act("b_schuss" if _shot_fx == 1 else ("a_hieb" if _shot_fx == 2 else "m_schuss"), xc.foes[0])
 		_voy._combat_t = 9999.0
 	if _shot_snap != "":  # Screenshot: ein Mann kippt mitten im Kampf
@@ -428,6 +462,30 @@ func _ready() -> void:
 	_world.add_child(RainLayer.new())
 
 
+## Dauertest der Kampfansicht: Kampf um Kampf, die Männer wählen von selbst (Combat.auto_hero), die Regie spielt alles ab.
+func _soak_step(delta: float) -> void:
+	_soak_cd -= delta
+	if _voy.combat == null:
+		if _soak_done >= _soak:
+			print("SOAK fertig: %d Kämpfe, Regie-Zähler %d" % [_soak_done, FightDirector.instances])
+			get_tree().quit()
+			return
+		var forms := ["draugr", "raeuber", "haendler", "dorf", "kraken"]
+		_hud.hide_help()
+		_voy.auto_combat = false
+		_voy.stage = 3
+		_voy.start_fight(String(forms[_soak_done % forms.size()]), {"source": "encounter"}, 3)
+		_voy.fight_begin()
+		_soak_done += 1
+		_soak_cd = 0.5
+		return
+	var c := _voy.combat
+	if c.state == "hero" and _soak_cd <= 0.0 and (_hud._dir == null or _hud._dir.pending_s() < 0.3):
+		c.auto_hero()
+		_voy._combat_t = Voyage.COMBAT_PACE
+		_soak_cd = 0.3
+
+
 func _process(delta: float) -> void:
 	Waves.time += delta
 	Waves.storm = _voy.storm
@@ -445,6 +503,8 @@ func _process(delta: float) -> void:
 			break
 	if _bot != "":
 		_bot_step(delta)
+	if _soak > 0:
+		_soak_step(delta)
 	if (_shot_slot == "play" or _shot_slot == "playloki") and _hud.slot_view != null and not _hud.slot_view.busy():
 		_shot_slot_play()
 
@@ -518,6 +578,7 @@ func _take_shot(path: String) -> void:
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(path)
 	print("Screenshot %dx%d: %s" % [img.get_width(), img.get_height(), path])
+	print("STAGE Messung: Zeichenaufrufe=%d Primitive=%d Objekte=%d" % [int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)), int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)), int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME))])
 	get_tree().quit()
 
 
@@ -558,6 +619,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not _voy.perk_offer.is_empty() and _voy.phase == Voyage.Phase.PLAN:
 			if key >= KEY_1 and key <= KEY_3:
 				_voy.choose_perk(key - KEY_1)
+			elif key == KEY_LEFT or key == KEY_RIGHT:
+				_hud.kb_move(-1 if key == KEY_LEFT else 1, _voy.perk_offer.size())
+			elif (key == KEY_ENTER or key == KEY_KP_ENTER or key == KEY_SPACE) and _hud.kb_card >= 0:
+				_voy.choose_perk(_hud.kb_card)
 			return
 		if _hud.ship_active():
 			match key:
@@ -592,6 +657,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _voy.phase == Voyage.Phase.ENCOUNTER:
 			if key >= KEY_1 and key <= KEY_7:
 				_voy.decide_encounter(key - KEY_1)
+			elif key == KEY_LEFT or key == KEY_RIGHT:  # Karte wählen (wie in Darkest Dungeon mit der Tastatur), Enter nimmt sie
+				_hud.kb_move(-1 if key == KEY_LEFT else 1, (Encounters.DATA[_voy.encounter]["options"] as Array).size())
+				return
+			elif (key == KEY_ENTER or key == KEY_KP_ENTER or key == KEY_SPACE) and _hud.kb_card >= 0:
+				_voy.decide_encounter(_hud.kb_card)
+				return
+		elif _voy.phase == Voyage.Phase.PLAN and (key == KEY_LEFT or key == KEY_RIGHT):
+			_route_step(-1 if key == KEY_LEFT else 1)  # Kurs auf den linken oder rechten Knoten der nächsten Meile
+			return
+		elif _voy.phase == Voyage.Phase.PLAN and key == KEY_UP:
+			_confirm()  # ↑: auf der Karte nach vorn, eine Wache auf dem gewählten Kurs
+			return
 		elif key >= KEY_1 and key <= KEY_9:
 			_voy.set_dial(floori((key - KEY_1) / 3.0), (key - KEY_1) % 3)  # 1–3 Segel, 4–6 Ruder, 7–9 Küste
 		match key:
@@ -667,6 +744,15 @@ func _setting_click(id: String) -> void:
 			Settings.auto_combat = not Settings.auto_combat
 			_voy.auto_combat = Settings.auto_combat
 			Settings.save_all()
+		"tstage":
+			Settings.stage_fx = 0 if Settings.stage_fx != 0 else 1  # Kampfbild: voll (Nebel, Glanz, Regen, Blitz) oder schlicht
+			Settings.save_all()
+		"tview":
+			Settings.fight_view = 1 if Settings.fight_view == 0 else 0  # Kampfansicht: voll (Zoom, Zeitlupe, Standbild) oder kurz (halbe Zeiten)
+			Settings.save_all()
+		"tshake":
+			Settings.shake = (Settings.shake + 2) % 3  # Wackeln: normal -> schwach -> aus
+			Settings.save_all()
 		"tback":
 			_hud.settings_open = false
 
@@ -719,6 +805,23 @@ func _new_run() -> void:
 		_new_armed = 4.0
 		if not _hud.menu_open:
 			_voy.say("Noch einmal drücken: die laufende Fahrt geht dabei verloren.", Voyage.Kind.BAD)
+
+
+## ← →: den Kurs auf den linken oder rechten Nachbarknoten der nächsten Meile legen (auf der Seekarte liegen sie nebeneinander).
+## Ist noch nichts gewählt, nimmt ← den linken und → den rechten Weg. Zwischen zwei Knoten ist der Kurs schon gesetzt.
+func _route_step(dir: int) -> void:
+	if _voy.leg > 0.0:
+		return
+	var links: Array = _voy.next_links().duplicate()
+	if links.is_empty():
+		return
+	links.sort()
+	var k := links.find(_voy.route)
+	if k < 0:
+		k = 0 if dir < 0 else links.size() - 1
+	else:
+		k = clampi(k + dir, 0, links.size() - 1)
+	_voy.select_route(int(links[k]))
 
 
 func _confirm() -> void:
@@ -1156,9 +1259,28 @@ func _bot_encounter() -> int:
 				pick = 2  # Handwerker
 		Encounters.Id.SPIELER:
 			pick = 1 if _voy.pfand > 0 else (0 if _voy.loot >= 120.0 else 2)  # die Pfandflasche zuerst, sonst nur mit Beute zum Verspielen
+		Encounters.Id.TREIBGUT, Encounters.Id.FLASCHENPOST:
+			pick = 0
+		Encounters.Id.SCHIFFBRUECHIGER:
+			pick = 0 if _voy.proviant >= 6 else 2
+		Encounters.Id.TREIBEIS:
+			pick = 1 if _voy.proviant >= 10 else 0  # umfahren, solange der Proviant reicht, sonst rudern
+		Encounters.Id.ENTERHAKEN:
+			pick = 0 if s > 0.6 else 1
+		Encounters.Id.WAL:
+			pick = 0 if (s > 0.8 and _voy.hull > 0.5 * _voy.hull_max()) else 1
+		Encounters.Id.IRRLICHTER:
+			pick = 2
+		Encounters.Id.STRUDEL:
+			pick = 1 if _voy.loot >= 80.0 else 0
+		Encounters.Id.TOTENFLOSS:
+			pick = 0 if s > 0.7 else 1
+		Encounters.Id.FISCHSCHWARM:
+			pick = 0 if _voy.proviant < 20 else 1
 	var opts: Array = Encounters.DATA[_voy.encounter]["options"]
 	if _bot != "smart":
 		pick = randi() % opts.size()
+	pick = mini(pick, opts.size() - 1)
 	if not Encounters.available(_voy, opts[pick]):
 		pick = opts.size() - 1  # die letzte Option ist immer kostenlos
 	return pick

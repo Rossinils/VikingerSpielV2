@@ -12,9 +12,14 @@ extends RefCounted
 ## Wirkungen ("fx") eines Ausgangs:
 ##   loot, proviant, hull (Rumpf), kraft_all, stress_all, wound (n Männer verlieren Kraft), kill (n Männer sterben)
 
-enum Id { HAENDLER, INSEL, UNGEHEUER, HAFEN, DORF, DRAUGR, RAEUBER, KRAKEN, WRACK, SPIELER }
+enum Id { HAENDLER, INSEL, UNGEHEUER, HAFEN, DORF, DRAUGR, RAEUBER, KRAKEN, WRACK, SPIELER,
+	TREIBGUT, SCHIFFBRUECHIGER, TREIBEIS, ENTERHAKEN, FLASCHENPOST, WAL, IRRLICHTER, STRUDEL, TOTENFLOSS, FISCHSCHWARM }
+## Ereignisse auf der Strecke (zwischen zwei Knoten, wie die Gänge in Darkest Dungeon): Id ab hier, siehe random_route_type()
+const ROUTE_FIRST := Id.TREIBGUT
 
-const WEIGHTS := [35, 40, 25, 0, 30, 18, 14, 0, 16, 0]  # Hafen wird fest platziert, nicht gewürfelt; das Spielschiff kommt erst ab Etappe 2
+const WEIGHTS := [35, 40, 25, 0, 30, 18, 14, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # Hafen wird fest platziert, nicht gewürfelt; das Spielschiff kommt erst ab Etappe 2; Streckenereignisse nie auf Knoten
+## Gewichte der Streckenereignisse (Id ab ROUTE_FIRST), Etappe und Thema verschieben sie, siehe random_route_type()
+const ROUTE_WEIGHTS := [30, 14, 16, 10, 12, 12, 8, 8, 0, 16]
 const WOUND_KRAFT := 30.0
 
 const BATTLE_OPTIONS := [
@@ -270,7 +275,238 @@ const DATA := [
 				"outcomes": [{"fx": {}, "lore": "gambler_pass"}],
 			},
 		],
-	}
+	},
+	# --- Ereignisse auf der Strecke: das Schiff hält zwischen zwei Knoten an ---
+	{
+		"name": "Treibgut", "letter": "t", "intro": "rev_drift", "route": true,
+		"desc": "Fässer, Planken und ein zerrissenes Segel treiben im Wasser. Was die See hergibt, gehört dem, der es herausfischt.",
+		"options": [
+			{
+				"label": "Bergen",
+				"lines": ["Kraft −6 für alle", "Proviant, Beute oder Holz", "selten ein Unglück"],
+				"outcomes": [
+					{"w": 40, "fx": {"proviant": 2, "kraft_all": -6}, "lore": "drift_food"},
+					{"w": 25, "fx": {"loot": 20, "kraft_all": -6}, "lore": "drift_loot"},
+					{"w": 20, "fx": {"hull": 8, "kraft_all": -6}, "lore": "drift_wood"},
+					{"w": 15, "fx": {"wound": 1, "kraft_all": -6}, "lore": "drift_hook"},
+				],
+			},
+			{
+				"label": "Weiterfahren",
+				"lines": ["Nichts geschieht."],
+				"outcomes": [{"fx": {}, "lore": "drift_pass"}],
+			},
+		],
+	},
+	{
+		"name": "Schiffbrüchiger", "letter": "s", "intro": "rev_castaway", "route": true,
+		"desc": "Ein Mann klammert sich an eine Planke, das Gesicht blau vor Kälte. Er ruft etwas, das wie euer Name klingt.",
+		"options": [
+			{
+				"label": "Aufnehmen",
+				"lines": ["Kosten: Proviant 1", "vielleicht ein neuer Mann", "vielleicht nicht nur ein Mann"],
+				"cost": {"proviant": 1},
+				"outcomes": [
+					{"w": 45, "fx": {"castaway": 1, "stress_all": -4}, "lore": "castaway_join"},
+					{"w": 30, "fx": {"stress_all": -6}, "lore": "castaway_dies"},
+					{"w": 25, "fx": {"wound": 1, "stress_all": 8}, "lore": "castaway_draugr"},
+				],
+			},
+			{
+				"label": "Fass zuwerfen",
+				"lines": ["Kosten: Proviant 1", "Verzweiflung −3", "er bleibt im Wasser"],
+				"cost": {"proviant": 1},
+				"outcomes": [{"fx": {"stress_all": -3}, "lore": "castaway_barrel"}],
+			},
+			{
+				"label": "Weiterfahren",
+				"lines": ["Verzweiflung +4 für alle"],
+				"outcomes": [{"fx": {"stress_all": 4}, "lore": "castaway_pass"}],
+			},
+		],
+	},
+	{
+		"name": "Treibeis", "letter": "e", "intro": "rev_ice", "route": true,
+		"desc": "Eisschollen versperren die Strecke, manche so groß wie ein Langhaus. Durch kommt man mit Kraft, mit Geduld oder mit Glück.",
+		"options": [
+			{
+				"label": "Durchrudern",
+				"lines": ["Kraft −10 für alle", "sicher"],
+				"outcomes": [{"fx": {"kraft_all": -10}, "lore": "ice_row"}],
+			},
+			{
+				"label": "Umfahren",
+				"lines": ["Kosten: Proviant 1", "kostet Zeit, sonst nichts"],
+				"cost": {"proviant": 1},
+				"outcomes": [{"fx": {}, "lore": "ice_around"}],
+			},
+			{
+				"label": "Durchsegeln",
+				"lines": ["schnell", "45 %: Rumpf −14"],
+				"outcomes": [
+					{"w": 55, "fx": {}, "lore": "ice_luck"},
+					{"w": 45, "fx": {"hull": -14}, "lore": "ice_crash"},
+				],
+			},
+		],
+	},
+	{
+		"name": "Enterhaken", "letter": "h", "intro": "rev_hook", "route": true,
+		"desc": "Ein Ruderboot voller Räuber schießt aus dem Dunst und wirft Haken über die Reling. Sie wollen nicht reden.",
+		"options": [
+			{
+				"label": "Abwehren",
+				"formation": "raeuber", "count": 2, "pass_lore": "hook_cut",
+				"lines": ["Deckkampf gegen zwei Räuber", "Sieg: Beute +30", "Verluste möglich"],
+				"fight": {"base": 0.45, "per": 0.5, "min": 0.15, "max": 0.92},
+				"outcomes": [
+					{"fx": {"loot": 30, "stress_all": -4}, "lore": "hook_win"},
+					{"fx": {"loot": -25, "hull": -8, "stress_all": 8}, "lore": "hook_lose"},
+				],
+			},
+			{
+				"label": "Taue kappen",
+				"lines": ["Kraft −8 für alle", "40 %: Beute −20"],
+				"outcomes": [
+					{"w": 60, "fx": {"kraft_all": -8}, "lore": "hook_cut"},
+					{"w": 40, "fx": {"kraft_all": -8, "loot": -20}, "lore": "hook_cut_loss"},
+				],
+			},
+		],
+	},
+	{
+		"name": "Flaschenpost", "letter": "f", "intro": "rev_bottle", "route": true,
+		"desc": "Eine Flasche schaukelt neben dem Bug, ein Zettel darin. Jemand wollte, dass ihn irgendwer liest. Vielleicht nicht ihr.",
+		"options": [
+			{
+				"label": "Öffnen",
+				"lines": ["eine Karte, Münzen", "oder schlechte Nachricht"],
+				"outcomes": [
+					{"w": 45, "fx": {"sight": 1}, "lore": "bottle_map"},
+					{"w": 35, "fx": {"loot": 15}, "lore": "bottle_coins"},
+					{"w": 20, "fx": {"stress_all": 6}, "lore": "bottle_letter"},
+				],
+			},
+			{
+				"label": "Zurück ins Meer",
+				"lines": ["Verzweiflung −2", "ohne Risiko"],
+				"outcomes": [{"fx": {"stress_all": -2}, "lore": "bottle_back"}],
+			},
+		],
+	},
+	{
+		"name": "Wal", "letter": "w", "intro": "rev_whale", "route": true,
+		"desc": "Ein Wal zieht neben dem Schiff, größer als das Schiff. Er sieht euch an, als hätte er Zeit.",
+		"options": [
+			{
+				"label": "Jagen",
+				"lines": ["Aussicht {ch} %", "Proviant +8, Beute +15", "sonst Rumpf −12, Verletzte"],
+				"fight": {"base": 0.3, "per": 0.45, "min": 0.15, "max": 0.85},
+				"outcomes": [
+					{"fx": {"proviant": 8, "loot": 15, "kraft_all": -8}, "lore": "whale_win"},
+					{"fx": {"hull": -12, "wound": 1, "kraft_all": -8, "stress_all": 6}, "lore": "whale_lose"},
+				],
+			},
+			{
+				"label": "Ziehen lassen",
+				"lines": ["Verzweiflung −5 für alle"],
+				"outcomes": [{"fx": {"stress_all": -5}, "lore": "whale_watch"}],
+			},
+		],
+	},
+	{
+		"name": "Irrlichter", "letter": "i", "intro": "rev_wisp", "route": true,
+		"desc": "Blaue Lichter tanzen über dem Wasser und rufen mit Stimmen, die man kennt. Wer ihnen folgt, findet etwas. Selten etwas Gutes.",
+		"options": [
+			{
+				"label": "Folgen",
+				"lines": ["Ein Fund möglich,", "meist Unheil", "Gegenstand möglich"],
+				"outcomes": [
+					{"w": 35, "fx": {"item": 1}, "lore": "wisp_treasure"},
+					{"w": 65, "fx": {"stress_all": 10, "hull": -6}, "lore": "wisp_trap"},
+				],
+			},
+			{
+				"label": "Opfergabe",
+				"lines": ["Kosten: Proviant 1", "Verzweiflung −6"],
+				"cost": {"proviant": 1},
+				"outcomes": [{"fx": {"stress_all": -6}, "lore": "wisp_gift"}],
+			},
+			{
+				"label": "Ohren zustopfen",
+				"lines": ["Kraft −4 für alle", "ohne Risiko"],
+				"outcomes": [{"fx": {"kraft_all": -4}, "lore": "wisp_ignore"}],
+			},
+		],
+	},
+	{
+		"name": "Strudel", "letter": "u", "intro": "rev_maelstrom", "route": true,
+		"desc": "Das Wasser dreht sich, erst langsam, dann nicht mehr. In der Mitte singt etwas, das Schiffe sammelt.",
+		"options": [
+			{
+				"label": "Kräftig rudern",
+				"lines": ["Kraft −14 für alle", "sicher"],
+				"outcomes": [{"fx": {"kraft_all": -14}, "lore": "maelstrom_row"}],
+			},
+			{
+				"label": "Silber opfern",
+				"lines": ["Kosten: Beute 25", "Rán lässt los"],
+				"cost": {"loot": 25},
+				"outcomes": [{"fx": {}, "lore": "maelstrom_offer"}],
+			},
+			{
+				"label": "Treiben lassen",
+				"lines": ["50 %: Rumpf −16", "und Verzweiflung"],
+				"outcomes": [
+					{"w": 50, "fx": {}, "lore": "maelstrom_lucky"},
+					{"w": 50, "fx": {"hull": -16, "stress_all": 6}, "lore": "maelstrom_bad"},
+				],
+			},
+		],
+	},
+	{
+		"name": "Totenfloß", "letter": "d", "intro": "rev_raft", "route": true,
+		"desc": "Ein Floß aus Leichen treibt heran. Einige sitzen aufrecht, und sie sitzen nicht still.",
+		"options": [
+			{
+				"label": "Kämpfen",
+				"formation": "draugr", "count": 2, "pass_lore": "raft_burn",
+				"lines": ["Deckkampf gegen zwei Draugr", "Sieg: Beute +25", "Verluste möglich"],
+				"fight": {"base": 0.45, "per": 0.5, "min": 0.15, "max": 0.92},
+				"outcomes": [
+					{"fx": {"loot": 25, "stress_all": -6}, "lore": "raft_win"},
+					{"fx": {"wound": 2, "stress_all": 10}, "lore": "raft_lose"},
+				],
+			},
+			{
+				"label": "Anzünden",
+				"lines": ["Kraft −6 für alle", "25 %: Rumpf −8"],
+				"outcomes": [
+					{"w": 75, "fx": {"kraft_all": -6, "stress_all": -3}, "lore": "raft_burn"},
+					{"w": 25, "fx": {"kraft_all": -6, "hull": -8}, "lore": "raft_burn_bad"},
+				],
+			},
+		],
+	},
+	{
+		"name": "Fischschwarm", "letter": "o", "intro": "rev_fish", "route": true,
+		"desc": "Das Wasser kocht vor Fisch, Möwen schreien darüber. Ein gutes Zeichen, sagen die Alten. Die Alten sagen viel.",
+		"options": [
+			{
+				"label": "Netze auswerfen",
+				"lines": ["Proviant +4", "Kraft −6 für alle"],
+				"outcomes": [
+					{"w": 80, "fx": {"proviant": 4, "kraft_all": -6}, "lore": "fish_ok"},
+					{"w": 20, "fx": {"proviant": 1, "kraft_all": -6}, "lore": "fish_torn"},
+				],
+			},
+			{
+				"label": "Weiterfahren",
+				"lines": ["Nichts geschieht."],
+				"outcomes": [{"fx": {}, "lore": "fish_pass"}],
+			},
+		],
+	},
 ]
 
 
@@ -301,6 +537,51 @@ static func random_type(stage: int = 1, theme: int = 0) -> int:
 		if r < 0:
 			return i
 	return Id.INSEL
+
+
+## Zufälliges Ereignis auf der Strecke: Räuberboote in Piratengewässern, Irrlichter im Nebel, Totenflöße in der Totensee,
+## Strudel und Treibgut in der Sturmfront; mit den Etappen mehr Hinterhalte und Strudel.
+static func random_route_type(stage: int = 1, theme: int = 0) -> int:
+	var w: Array = ROUTE_WEIGHTS.duplicate()
+	var k := func(id: int) -> int: return id - ROUTE_FIRST
+	w[k.call(Id.ENTERHAKEN)] = int(w[k.call(Id.ENTERHAKEN)]) + 3 * (stage - 1)
+	w[k.call(Id.STRUDEL)] = int(w[k.call(Id.STRUDEL)]) + 2 * (stage - 1)
+	w[k.call(Id.TOTENFLOSS)] = 0 if stage < 2 else 6 + 2 * (stage - 2)
+	match theme:
+		1:
+			w[k.call(Id.IRRLICHTER)] = int(w[k.call(Id.IRRLICHTER)]) * 3
+		2:
+			w[k.call(Id.STRUDEL)] = int(w[k.call(Id.STRUDEL)]) * 2
+			w[k.call(Id.TREIBGUT)] = int(w[k.call(Id.TREIBGUT)]) * 2
+		3:
+			w[k.call(Id.ENTERHAKEN)] = int(w[k.call(Id.ENTERHAKEN)]) * 3
+		4:
+			w[k.call(Id.TOTENFLOSS)] = int(w[k.call(Id.TOTENFLOSS)]) * 3 + 10
+			w[k.call(Id.IRRLICHTER)] = int(w[k.call(Id.IRRLICHTER)]) * 2
+	var total := 0
+	for x in w:
+		total += int(x)
+	var r := randi() % maxi(total, 1)
+	for i in w.size():
+		r -= int(w[i])
+		if r < 0:
+			return ROUTE_FIRST + i
+	return Id.TREIBGUT
+
+
+## Farbe eines Streckenereignisses auf der Karte: "gefahr" (rot), "spuk" (violett), "fund" (gold).
+static func route_tone(id: int) -> String:
+	match id:
+		Id.TREIBEIS, Id.ENTERHAKEN, Id.STRUDEL, Id.TOTENFLOSS:
+			return "gefahr"
+		Id.IRRLICHTER, Id.SCHIFFBRUECHIGER:
+			return "spuk"
+	return "fund"
+
+
+## Liegt diese Begegnung auf der Strecke (zwischen zwei Knoten)?
+static func is_route(id: int) -> bool:
+	return id >= 0 and id < DATA.size() and bool(DATA[id].get("route", false))
 
 
 static func option(id: int, i: int) -> Dictionary:
@@ -358,6 +639,12 @@ const BOOTY := {
 	"battle_kraken": ["Perlen und Gold aus dem Magen des Untiers", "versunkene Münzen und ein Tentakelstumpf zum Angeben"],
 	"reef": ["über Bord gegangene Truhen"],
 	"camp": ["ein Beutel im Seetang", "Münzen in einem angespülten Fass", "Silber im Treibholz"],
+	"drift_loot": ["eine Kiste mit nassen Münzen", "ein Beutel Silber an einem Fass", "Bernstein in einem Netz"],
+	"bottle_coins": ["Münzen statt eines Briefes", "ein Silberring und ein Zettel ohne Worte"],
+	"whale_win": ["Walrat, Fischbein und Tran", "Fischbein und eine Harpune, die schon in ihm steckte"],
+	"hook_win": ["die Börsen der Räuber und ihr Boot", "Messer, Münzen und ein halber Schinken"],
+	"raft_win": ["Grabbeigaben, die keiner mehr vermisst", "Ringe an Fingern, die nicht mehr greifen"],
+	"castaway_cache": ["das Versteck seines gesunkenen Schiffs"],
 }
 ## Kurz, was einen bei einer Begegnung erwartet (für die Tooltips der Seekarte).
 const HINTS := [
@@ -371,6 +658,16 @@ const HINTS := [
 	"Seeschlacht gegen den Kraken: sehr viel Beute, Männer können über Bord gerissen werden.",
 	"Durchsuchen findet oft etwas (auch einen Gegenstand), manchmal eine Falle. Holz bergen flickt den Rumpf.",
 	"Ein Spielautomat mit hohem Einsatz: Beute, Rumpf oder sogar ein Mann. Wenig Gewinne, aber richtig dicke, und Adlerssons Streich bei den Masken.",
+	"Treibgut: bergen kostet Kraft und bringt meist Proviant, Beute oder Holz. Man kann weiterfahren.",
+	"Ein Schiffbrüchiger: aufnehmen kostet Proviant und bringt vielleicht einen neuen Mann, vielleicht einen Toten.",
+	"Treibeis versperrt den Weg: rudern kostet Kraft, segeln riskiert den Rumpf, umfahren kostet Proviant.",
+	"Ein Räuberboot entert: abwehren ist ein kleiner Deckkampf, Taue kappen kostet Kraft und vielleicht Beute.",
+	"Eine Flaschenpost: eine Karte (mehr Sicht), Münzen oder eine Nachricht, die man lieber nicht gelesen hätte.",
+	"Ein Wal: jagen bringt viel Proviant oder einen Schlag in den Rumpf. Man kann ihn ziehen lassen.",
+	"Irrlichter: folgen führt selten zu einem Fund, meist ins Unheil. Wer sich die Ohren zustopft, kommt vorbei.",
+	"Ein Strudel: rudern kostet viel Kraft, treiben lassen riskiert den Rumpf, Silber lässt Rán los.",
+	"Ein Totenfloß mit Draugr: ein kleiner Deckkampf oder Feuer.",
+	"Ein Fischschwarm: Netze auswerfen bringt Proviant und kostet Kraft.",
 ]
 
 
@@ -458,6 +755,8 @@ static func fx_summary(fx: Dictionary) -> String:
 		parts.append("Verzweiflung %s für alle" % Voyage.signed(int(fx["stress_all"])))
 	if fx.has("item"):
 		parts.append("Gegenstand")
+	if fx.has("sight"):
+		parts.append("Sicht +%d Meile für diese Etappe" % int(fx["sight"]))
 	if fx.has("wound"):
 		parts.append("%d verletzt" % int(fx["wound"]))
 	return ", ".join(PackedStringArray(parts))

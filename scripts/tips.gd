@@ -9,6 +9,7 @@ const PAPER := Color("e6e0cc")
 const DIM := Color("a3a9b0")
 const RED := Color("d2564b")
 const GREEN := Color("7ab85a")
+const VIOLET := Color("a97fd6")
 
 const HAZARD_TEXT := {
 	Sea.Hazard.BRECHER: "Hohe, brechende Wellen schlagen auf das Deck. Sie beschädigen den Rumpf und reißen manchmal einen Mann über Bord.",
@@ -258,6 +259,19 @@ static func node(voy: Voyage, c: int, i: int) -> Dictionary:
 	elif hz == Sea.Hazard.NONE:
 		lines.append(_l("Keine Gefahr, keine Begegnung: ein ruhiger Weg.", DIM))
 	return _tip("Meile %d" % c, lines)
+
+
+## Ein Ereignis auf der Strecke (Raute auf einem Weg der Seekarte).
+static func route_event(voy: Voyage, id: int, known: bool) -> Dictionary:
+	if not known:
+		return _tip("Unterwegs: etwas", [
+			_l("Auf diesem Weg liegt etwas. Was es ist, sieht man erst vom Knoten davor, wie einen Gang in Darkest Dungeon."),
+			_l("Das Schiff hält dort an, mitten auf dem Weg; der Rest der Strecke verfällt.", DIM)])
+	var def: Dictionary = Encounters.DATA[id]
+	var col := RED if Encounters.route_tone(id) == "gefahr" else (VIOLET if Encounters.route_tone(id) == "spuk" else GOLD)
+	return _tip("Unterwegs: %s" % def["name"], [
+		_l(Encounters.hint(id), col),
+		_l("Das Schiff hält dort an, mitten auf dem Weg; der Rest der Strecke verfällt. Danach geht es auf demselben Kurs weiter.", DIM)])
 
 
 # --- Begegnungskarten -------------------------------------------------------------

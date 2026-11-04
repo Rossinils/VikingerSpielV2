@@ -413,6 +413,46 @@ func _make_map() -> void:
 	if stage == 1 or randf() < 0.6:
 		_place_harbor(randi_range(4, 6))
 	_place_coves()
+	_place_route_events()
+
+
+## Ereignisse auf der Strecke (wie die Gänge in Darkest Dungeon): auf einigen Wegen zwischen zwei Knoten liegt etwas, an dem das
+## Schiff mitten auf der Strecke anhält. Gespeichert am Startknoten des Weges: "mid" = [{"to": Knoten der nächsten Spalte,
+## "id": Encounters-Id, "t": Lage auf dem Weg (0..1), "done": schon erlebt}]. Höchstens eines je Startknoten (die Karte bleibt lesbar),
+## nicht auf dem ersten Weg hinter dem Hafen und nicht auf dem Weg in den Zielhafen.
+func _place_route_events() -> void:
+	var want := 3 + mini(floori((stage - 1) / 2.0), 3) + (1 if theme == 1 or theme == 4 else 0)
+	var edges: Array = []
+	for c in range(1, MILES - 1):
+		for i in (map[c] as Array).size():
+			for j in ((map[c][i] as Dictionary)["links"] as Array):
+				edges.append([c, i, int(j)])
+	edges.shuffle()
+	var placed := 0
+	for e in edges:
+		if placed >= want:
+			break
+		var nd: Dictionary = map[int(e[0])][int(e[1])]
+		if not (nd.get("mid", []) as Array).is_empty():
+			continue
+		nd["mid"] = [{"to": int(e[2]), "id": Encounters.random_route_type(stage, theme), "t": snappedf(randf_range(0.3, 0.7), 0.05), "done": false}]
+		placed += 1
+
+
+## Das noch offene Ereignis auf dem Weg von (col, i) nach (col + 1, j); leer, wenn dort nichts (mehr) liegt.
+func route_event(col: int, i: int, j: int) -> Dictionary:
+	if col < 0 or col >= MILES or i < 0 or i >= (map[col] as Array).size():
+		return {}
+	for ev in (node_at(col, i).get("mid", []) as Array):
+		if int(ev["to"]) == j and not bool(ev.get("done", false)):
+			return ev
+	return {}
+
+
+## Weiß man, was auf den Wegen ab dieser Spalte liegt? Auf den Wegen vom eigenen Knoten aus ja (mit Karte aus dem Lager oder der
+## Flaschenpost eine Meile weiter), weiter voraus sieht man nur, dass dort etwas liegt.
+func route_event_known(col: int) -> bool:
+	return col <= mile + camp_sight
 
 
 ## Wie riskant ein Knoten ist: Seegang, Gefahr, Kampfbegegnung.
@@ -1233,9 +1273,17 @@ func simulate_move(dist: float) -> Dictionary:
 	var remaining := dist
 	var arrivals: Array = []
 	var stop := ""
+	var event: Dictionary = {}
 	while remaining > 0.001 and col < MILES:
 		if rt < 0:
 			rt = int(node_at(col, ni)["links"][0])
+		var ev := route_event(col, ni, rt)  # ein Ereignis auf diesem Weg hält das Schiff an, der Rest der Strecke verfällt
+		if not ev.is_empty() and float(ev["t"]) > lg + 0.001 and remaining >= float(ev["t"]) - lg - 0.001:
+			lg = float(ev["t"])
+			remaining = 0.0
+			stop = "event"
+			event = ev
+			break
 		var need := 1.0 - lg
 		if remaining < need - 0.04:
 			lg += remaining
@@ -1253,7 +1301,7 @@ func simulate_move(dist: float) -> Dictionary:
 			stop = "fork"  # an einer Gabelung hält das Schiff an: den Weg wählt der Spieler
 			break
 		rt = best_successor(col, ni)
-	return {"arrivals": arrivals, "leg": lg, "route": rt if lg > 0.0 else -1, "stop": stop, "col": col, "ni": ni}
+	return {"arrivals": arrivals, "leg": lg, "route": rt if lg > 0.0 else -1, "stop": stop, "col": col, "ni": ni, "event": event}
 
 
 ## Was würde dieses Manöver mit der aktuellen Besatzung auf dem gewählten Kurs bewirken? Wird für die
@@ -1267,7 +1315,7 @@ func plan(d: Dictionary = {}) -> Dictionary:
 	var dist := want * ratio
 	if dist < 0.3:
 		dist = 0.0
-	var move := {"arrivals": [], "leg": leg, "route": route, "stop": "", "col": mile, "ni": pos}
+	var move := {"arrivals": [], "leg": leg, "route": route, "stop": "", "col": mile, "ni": pos, "event": {}}
 	if dist > 0.0:
 		move = simulate_move(dist)
 	var arrivals: Array = move["arrivals"]
@@ -1306,6 +1354,8 @@ func plan(d: Dictionary = {}) -> Dictionary:
 			"wash": minf(Sea.wash_chance(sea) * float(d["exposure"]) * weight, 0.9),
 			"hazard": Sea.Hazard.NONE, "h_dmg": 0.0, "h_over": 0.0, "h_loot": 0.0, "mit": 0.0,
 		}
+		if kind == "partial" and String(move["stop"]) == "event":
+			row["event"] = int((move["event"] as Dictionary)["id"])
 		var hz := int(node_at(col, ni)["hazard"])
 		if kind == "arrive" and hz != Sea.Hazard.NONE:
 			var counter: Dictionary = d["counter"]
@@ -1330,6 +1380,7 @@ func plan(d: Dictionary = {}) -> Dictionary:
 	return {
 		"d": d, "miles": dist, "want": want, "ratio": ratio, "rows": rows, "arrivals": arrivals,
 		"leg_after": lg_end if dist > 0.0 else leg, "route_after": int(move["route"]) if dist > 0.0 else route, "stop": String(move["stop"]),
+		"event": move["event"],
 		"strain": strain_sum, "hazard_dmg": hazard_dmg, "repair": repair,
 		"hull_after": minf(hull - damage + repair, hull_max()),
 		"proviant": int(d["proviant"]) + extra_food(), "tired": tired, "last_sea": last_sea,
@@ -1501,7 +1552,15 @@ func _do_step(row: Dictionary) -> void:
 				_enc_pending = int(nd["enc"])
 				nd["enc"] = -1
 		"partial":
-			_fact("Weiter auf Kurs, noch nicht am Knoten – %s." % Sea.SEA_NAMES[int(row["sea"])], Kind.FACT)
+			if row.has("event"):
+				var ev: Dictionary = _plan.get("event", {})
+				if not ev.is_empty():
+					ev["done"] = true
+				_enc_pending = int(row["event"])
+				_fact("Halt auf der Strecke: %s – %s." % [Encounters.DATA[int(row["event"])]["name"], Sea.SEA_NAMES[int(row["sea"])]], Kind.FACT)
+				gain_xp(5)
+			else:
+				_fact("Weiter auf Kurs, noch nicht am Knoten – %s." % Sea.SEA_NAMES[int(row["sea"])], Kind.FACT)
 		_:
 			_fact("Ihr treibt in %s." % Sea.SEA_NAMES[int(row["sea"])], Kind.FACT)
 	if bool(row["last"]) and float(_plan["miles"]) > 0.0:
@@ -1826,7 +1885,7 @@ func decide_encounter(i: int) -> void:
 		start_fight(String(opt["formation"]), {
 			"source": "encounter", "win_fx": win_fx, "win_lore": String((outs[0] as Dictionary).get("lore", "")),
 			"lose_lore": String((outs[1] as Dictionary).get("lore", "")), "pass_lore": String(opt.get("pass_lore", "")),
-		})
+		}, int(opt.get("count", -1)))
 		return
 	if Encounters.is_battle(encounter):
 		Battle.decide(self, String(opt["tactic"]))
@@ -1858,6 +1917,9 @@ func _apply_outcome(outcome: Dictionary) -> void:
 	var loot_msg := ""  # kommt als letzte Meldung vor dem Skalden, damit sie nicht gleich wegscrollt
 	var killed := _apply_fx(fx)
 	var gained := roundi(loot - loot_before)
+	if String(outcome.get("lore", "")) == "castaway_join" and _hired_name == "":
+		outcome = outcome.duplicate()
+		outcome["lore"] = "castaway_cache"  # kein Platz an Bord: er bezahlt mit dem Versteck seines Schiffs
 	if gained > 0:  # Beute getrennt melden: wie viel, woher, was es war
 		var what := Encounters.booty_for(String(outcome.get("lore", "")), true)
 		var src := String(Encounters.DATA[encounter]["name"]) if encounter >= 0 else ""
@@ -1925,6 +1987,20 @@ func _apply_fx(fx: Dictionary) -> Array[String]:
 			_note("killed", m.display_name, encounter)
 	for k in int(fx.get("recruit", 0)):
 		_hire()
+	if fx.has("sight"):
+		camp_sight += int(fx["sight"])  # eine Karte: für den Rest der Etappe eine Meile weiter sehen
+	for k in int(fx.get("castaway", 0)):
+		# ein Schiffbrüchiger: wer Platz hat, bekommt einen neuen Mann; sonst zeigt er dafür sein gesunkenes Schiff
+		var keep_r := recruits.duplicate()
+		var keep_1 := recruit.duplicate()
+		_roll_recruit()
+		if can_recruit():
+			var nm := _place_recruit(0)
+			nm.kraft = minf(nm.kraft, 40.0)  # halb erfroren: er braucht ein paar Wachen auf der Ladung
+		else:
+			loot += 20.0 * stat("loot") * (1.0 + 0.12 * float(stage - 1))
+		recruits = keep_r
+		recruit = keep_1
 	for k in int(fx.get("item", 0)):
 		if randf() < 0.1:
 			_find_pfand("Fund im Wrack")
@@ -2715,6 +2791,16 @@ func to_dict() -> Dictionary:
 
 
 ## Setzt eine gespeicherte Fahrt fort (immer an einem Planungspunkt).
+## Ereignisse eines Knotens aus dem Spielstand (JSON liefert Zahlen als Gleitkomma).
+static func _mid_from(a: Variant) -> Array:
+	var out: Array = []
+	if a is Array:
+		for ev in a:
+			if ev is Dictionary and (ev as Dictionary).has("id"):
+				out.append({"to": int(ev["to"]), "id": int(ev["id"]), "t": float(ev["t"]), "done": bool(ev.get("done", false))})
+	return out
+
+
 func resume(d: Dictionary) -> void:
 	map.clear()
 	for col in d["map"]:
@@ -2723,6 +2809,7 @@ func resume(d: Dictionary) -> void:
 			column.append({
 				"sea": int(nd["sea"]), "hazard": int(nd["hazard"]), "enc": int(nd["enc"]),
 				"links": Traits.typed(nd["links"]), "visited": bool(nd.get("visited", false)), "cove": bool(nd.get("cove", false)),
+				"mid": _mid_from(nd.get("mid", [])),
 			})
 		map.append(column)
 	mile = int(d["mile"])

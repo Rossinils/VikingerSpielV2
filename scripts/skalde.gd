@@ -387,6 +387,164 @@ const LINES := {
 	"wreck_pass": [
 		"Wir lassen das Wrack liegen. Es hat noch jeden Besucher überlebt.",
 	],
+	# --- Ereignisse auf der Strecke ---
+	"rev_drift": [
+		"Treibgut voraus: Fässer, Planken, ein Segel ohne Schiff. Irgendwo hat jemand einen sehr schlechten Tag gehabt.",
+		"Die See spuckt aus, was sie nicht mag. Diesmal Fässer.",
+	],
+	"drift_food": [
+		"Zwei Fässer Salzfisch, kaum nass. Der Vorbesitzer wird sie nicht vermissen, er ist jetzt selbst Fisch.",
+	],
+	"drift_loot": [
+		"Eine Kiste, schwer von Münzen. Das Meer zahlt selten, aber wenn, dann bar.",
+	],
+	"drift_wood": [
+		"Gute Planken, gerade gewachsen. Die Zimmerleute nicken, das ist bei ihnen fast ein Lied.",
+	],
+	"drift_hook": [
+		"In dem Netz hing ein Haken, und an dem Haken hing nach einem Augenblick {n}. Er flucht, also lebt er.",
+		"Das Fass war morsch, die Hand darin nicht mehr ganz heil. Die See nimmt immer einen Zoll.",
+	],
+	"drift_pass": [
+		"Wir lassen es treiben. Nicht alles, was schwimmt, will gerettet werden.",
+	],
+	"rev_castaway": [
+		"Ein Mann im Wasser, an eine Planke geklammert. Er winkt, als wäre das hier ein Hafen.",
+		"Eine Stimme aus den Wellen ruft um Hilfe. Die Wellen klingen zufrieden.",
+	],
+	"castaway_join": [
+		"Wir ziehen ihn an Bord. Er heißt {n}, sagt er, und er rudert, sobald die Finger wieder gehorchen.",
+	],
+	"castaway_cache": [
+		"Kein Platz an Bord, aber er bezahlt die Fahrt bis zur nächsten Küste: er weiß, wo sein Schiff gesunken ist, und was es geladen hatte.",
+	],
+	"castaway_dies": [
+		"Er stirbt in der Nacht, warm und in Decken. Es gibt schlechtere Arten, und wir kennen die meisten.",
+	],
+	"castaway_draugr": [
+		"Unter der blauen Haut war er schon lange tot. Er beißt, bevor er zu Staub zerfällt. Die See hat einen schlechten Humor.",
+	],
+	"castaway_barrel": [
+		"Wir werfen ihm ein Fass zu. Er schwimmt damit davon, Richtung Land, oder Richtung Walhall. Eins von beiden.",
+	],
+	"castaway_pass": [
+		"Wir fahren vorbei. Sein Rufen bleibt länger an Bord als er.",
+	],
+	"rev_ice": [
+		"Treibeis versperrt den Weg, Schollen so groß wie Langhäuser. Der Norden schließt seine Tür.",
+	],
+	"ice_row": [
+		"Rudern, stoßen, rudern. Die Schollen weichen, die Rücken der Ruderer nicht.",
+	],
+	"ice_luck": [
+		"Wir segeln durch, die Schollen schaben am Rumpf und lassen ihn ganz. Glück ist auch eine Art von Seemannschaft.",
+	],
+	"ice_crash": [
+		"Eine Scholle, die keiner sah, sieht uns. Das Krachen hört man noch lange in den Planken.",
+	],
+	"ice_around": [
+		"Wir fahren außen herum, eine Wache länger. Das Eis hat Zeit, wir haben Proviant.",
+	],
+	"rev_hook": [
+		"Haken fliegen über die Reling, ein Ruderboot hängt sich an unser Heck. Räuber, und sie haben gute Laune.",
+	],
+	"hook_win": [
+		"Die Räuber liegen im Wasser, ihr Boot treibt leer davon. Ihre Börsen haben wir behalten.",
+	],
+	"hook_lose": [
+		"Sie nehmen, was sie tragen können, und lassen uns das, was sie nicht tragen wollen: Schrammen und Scham.",
+	],
+	"hook_cut": [
+		"Äxte auf die Taue, Ruder ins Wasser. Das Boot bleibt zurück, ihre Flüche nicht.",
+	],
+	"hook_cut_loss": [
+		"Wir kommen los, aber ein Sack Beute geht mit ihnen. Zum Abschied winken sie damit.",
+	],
+	"rev_bottle": [
+		"Eine Flasche schaukelt am Bug, ein Zettel darin. Irgendwer wollte gelesen werden.",
+	],
+	"bottle_map": [
+		"Eine Karte der nächsten Untiefen, gezeichnet von jemandem, der sie zu spät kannte. Wir sehen jetzt weiter als er.",
+	],
+	"bottle_coins": [
+		"Keine Nachricht, nur Münzen. Jemand wollte etwas vor den Erben verstecken und hat es den Fischen gegeben.",
+	],
+	"bottle_letter": [
+		"Ein Abschiedsbrief. Der Name darin ist der eines Schiffes, das vor uns diesen Kurs fuhr. Niemand liest ihn zweimal.",
+	],
+	"bottle_back": [
+		"Wir werfen sie zurück. Was das Meer verschickt, soll es selbst zustellen.",
+	],
+	"rev_whale": [
+		"Ein Wal zieht neben uns her, größer als das Schiff. Er sieht uns an, als hätte er Zeit, und er hat sie.",
+	],
+	"whale_win": [
+		"Der Wal ist erlegt. Fleisch, Tran und Fischbein für Wochen. Die Ruderer riechen danach noch länger.",
+	],
+	"whale_lose": [
+		"Der Wal schlägt einmal mit der Flosse, und das Schiff lernt fliegen, kurz. Die Landung ist schlechter.",
+	],
+	"whale_watch": [
+		"Er taucht ab, und für einen Augenblick ist das Meer nicht feindlich. Nur für einen.",
+	],
+	"rev_wisp": [
+		"Blaue Lichter über dem Wasser, und sie rufen mit Stimmen von Müttern und toten Brüdern.",
+		"Irrlichter. Wer ihnen folgt, findet immer etwas. Meistens sich selbst, unter Wasser.",
+	],
+	"wisp_treasure": [
+		"Sie führen zu einem Grab im Riff. Der Tote darin hatte Geschmack und keine Einwände.",
+	],
+	"wisp_trap": [
+		"Die Lichter führen uns auf ein Riff und erlöschen, zufrieden. Der Rumpf ist es nicht, die Männer auch nicht.",
+	],
+	"wisp_ignore": [
+		"Wachs in die Ohren, Blick aufs Ruder. Die Stimmen rufen weiter, nur nicht mehr uns.",
+	],
+	"wisp_gift": [
+		"Ein Brot und ein Becher Met für die Lichter. Sie ziehen weiter, und die Männer schlafen in dieser Nacht.",
+	],
+	"rev_maelstrom": [
+		"Das Wasser beginnt sich zu drehen, erst langsam, dann nicht mehr. In der Mitte singt Rán ihr Lied für Schiffe.",
+	],
+	"maelstrom_row": [
+		"Rudern, bis die Hände bluten, und noch zwei Schläge mehr. Der Strudel lässt uns gehen, enttäuscht.",
+	],
+	"maelstrom_lucky": [
+		"Wir treiben einmal im Kreis und dann hinaus. Rán hatte heute schon gegessen.",
+	],
+	"maelstrom_bad": [
+		"Der Strudel spuckt uns aus, aber nicht ganz. Ein Teil des Rumpfes bleibt bei Rán.",
+	],
+	"maelstrom_offer": [
+		"Silber für Rán, über die Reling. Das Wasser wird ruhig, das Lied verstummt. Sie ist käuflich, wie alle Götter.",
+	],
+	"rev_raft": [
+		"Ein Floß aus Leichen treibt heran. Einige sitzen aufrecht, und sie sitzen nicht still.",
+	],
+	"raft_win": [
+		"Die Toten liegen wieder, diesmal endgültig. Ihr Schmuck reist mit uns weiter.",
+	],
+	"raft_lose": [
+		"Wir stoßen das Floß weg, aber zwei von ihnen haben ihre Zähne in unseren Männern gelassen.",
+	],
+	"raft_burn": [
+		"Pech und Feuer, und das Floß brennt wie ein Grab bei den Alten. Die Männer singen, ohne es zu wollen.",
+	],
+	"raft_burn_bad": [
+		"Das Floß brennt, und ein brennender Toter klettert noch bis an unsere Reling. Wir löschen den Rumpf, dann ihn.",
+	],
+	"rev_fish": [
+		"Das Wasser kocht vor Fisch, Möwen kreischen darüber. Ein gutes Zeichen, sagen die Alten. Die Alten sagen viel.",
+	],
+	"fish_ok": [
+		"Die Netze kommen voll herauf. Heute Abend gibt es Fisch, und morgen, und übermorgen.",
+	],
+	"fish_torn": [
+		"Ein großer Fisch nimmt das halbe Netz mit. Der Rest reicht für eine Mahlzeit und einen Fluch.",
+	],
+	"fish_pass": [
+		"Wir fahren durch den Schwarm hindurch. Die Möwen sehen uns hinterher, mit Verachtung.",
+	],
 	"enc_gambler": [
 		"Grüne Laternen über schwarzem Wasser, und an Deck ein Automat, der leise summt. Adlersson spielt nie, ohne dass jemand anderes bezahlt.",
 	],
