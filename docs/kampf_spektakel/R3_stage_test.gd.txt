@@ -1,0 +1,542 @@
+extends Node2D
+
+## Einzelbeweise der Kampfbühne (Sandbox "buehne"): --stagetest=a|b|c|d|e|i[:arg]. Kein Spiel dahinter, nur Bild und Zähler.
+##  a  Bildschirm-Shader (hint_screen_texture) auf der rechten Hälfte; arg "bad": falsche Koordinaten (SCREEN_UV) zur Vorführung
+##  b  Leuchten: links normal gemischt, rechts additiv (CanvasItemMaterial BLEND_MODE_ADD)
+##  c  Schichten, die in einem Control per draw_set_transform skaliert werden (arg = Zoom, z. B. 1.5), wie es Hud._draw könnte
+##  d  Zoomgüte 1,0 / 1,5 / 2,0 mit drei Wegen (draw_set_transform, Sprite2D.scale, Eltern-Node2D.scale) und Streifenmuster
+##  e  Shader auf Sprites: Blitz, Umriss, Entsättigung, Farbstich, Abdunkeln; unten gemeinsames Material mit Instanz-Uniforms
+##  i  Eingabe: schluckt ein Kind-Control mit mouse_filter STOP den Klick, den Main in _unhandled_input erwartet?
+##  v  Kamera als SubViewport (arg = Aufloesungsfaktor, 1 = 480x320): gleiche Streifen wie d, zum Vergleich der Pixelgleichmaessigkeit
+
+const PAD := 2
+
+class DL extends Node2D:
+	var fn: Callable
+
+	func _draw() -> void:
+		if fn.is_valid():
+			fn.call(self)
+
+
+class HudLike extends Control:
+	var fn: Callable
+
+	func _draw() -> void:
+		if fn.is_valid():
+			fn.call(self)
+
+
+var mode := ""
+var arg := ""
+var _combat_img: Image
+var _tex_cache: Dictionary = {}
+var _enemies: Texture2D
+var _ship: Texture2D
+var _combat: Texture2D
+var _font: Font
+var _t := 0.0
+var _stripe: Texture2D
+var _glow: Texture2D
+var _input_hits := 0
+var _input_phase := 0
+var _input_wait := 0
+var _gui_hits := 0
+
+
+func _ready() -> void:
+	_font = ThemeDB.fallback_font
+	_enemies = load("res://assets/enemies.png") as Texture2D
+	_ship = load("res://assets/ship.png") as Texture2D
+	_combat = load("res://assets/combat.png") as Texture2D
+	_combat_img = _combat.get_image()
+	_combat_img.convert(Image.FORMAT_RGBA8)
+	_stripe = _make_stripe()
+	_glow = _make_glow(48)
+	match mode:
+		"a":
+			_build_a()
+		"b":
+			_build_b()
+		"c":
+			_build_c()
+		"d":
+			_build_d()
+		"e":
+			_build_e()
+		"v":
+			_build_v()
+		"i":
+			_build_i()
+
+
+func _process(delta: float) -> void:
+	_t += delta
+	for ch in get_children():
+		if ch is CanvasItem:
+			(ch as CanvasItem).queue_redraw()
+	if mode == "i":
+		_input_step()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		_input_hits += 1
+
+
+# --- Hilfen ------------------------------------------------------------------------------------------------
+
+func _make_stripe() -> Texture2D:
+	var img := Image.create(16, 4, false, Image.FORMAT_RGBA8)
+	for y in 4:
+		for x in 16:
+			img.set_pixel(x, y, Color(1, 1, 1, 1) if x % 2 == 0 else Color(0.05, 0.05, 0.1, 1))
+	return ImageTexture.create_from_image(img)
+
+
+func _make_glow(r: int) -> Texture2D:
+	var img := Image.create(r * 2, r * 2, false, Image.FORMAT_RGBA8)
+	for y in r * 2:
+		for x in r * 2:
+			var d := Vector2(float(x) + 0.5 - float(r), float(y) + 0.5 - float(r)).length() / float(r)
+			var v := clampf(1.0 - d, 0.0, 1.0)
+			img.set_pixel(x, y, Color(1, 1, 1, v * v))
+	return ImageTexture.create_from_image(img)
+
+
+## Figur aus combat.png mit 2 Pixel transparentem Rand (für den Umriss).
+func _fig_tex(row: int, col: int) -> Texture2D:
+	var key := "%d_%d" % [row, col]
+	if _tex_cache.has(key):
+		return _tex_cache[key]
+	var out := Image.create(44 + 2 * PAD, 56 + 2 * PAD, false, Image.FORMAT_RGBA8)
+	out.blit_rect(_combat_img, Rect2i(col * 44, row * 56, 44, 56), Vector2i(PAD, PAD))
+	var t := ImageTexture.create_from_image(out)
+	_tex_cache[key] = t
+	return t
+
+
+func _sprite(parent: Node, feet: Vector2, row: int, col: int, mat: Material) -> Sprite2D:
+	var s := Sprite2D.new()
+	s.centered = false
+	s.texture = _fig_tex(row, col)
+	s.offset = Vector2(-22 - PAD, -52 - PAD)
+	s.position = feet
+	if mat != null:
+		s.material = mat
+	parent.add_child(s)
+	return s
+
+
+func _label(ci: CanvasItem, p: Vector2, text: String, col: Color = Color(1, 1, 1)) -> void:
+	ci.draw_string(_font, p + Vector2(1, 1), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0, 0, 0, 0.9))
+	ci.draw_string(_font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, col)
+
+
+## Dunkler Himmel mit Streifen, Planken und Fugen: genug Struktur, damit Entsättigen und Abdunkeln sichtbar sind.
+func _bg(ci: CanvasItem, r: Rect2) -> void:
+	ci.draw_rect(Rect2(r.position, Vector2(r.size.x, 70)), Color("2a3a55"))
+	for i in 7:
+		ci.draw_rect(Rect2(r.position.x, r.position.y + float(i) * 10.0, r.size.x, 5), Color("34486a"))
+	ci.draw_rect(Rect2(r.position.x, r.position.y + 70, r.size.x, 6), Color("5b3f26"))
+	ci.draw_rect(Rect2(r.position.x, r.position.y + 76, r.size.x, r.size.y - 76), Color("3b2a1d"))
+	for row in 6:
+		var yy := r.position.y + 76.0 + float(row) * 8.0
+		ci.draw_rect(Rect2(r.position.x, yy, r.size.x, 1), Color("241810"))
+		for sx in range(int(r.position.x) + (row % 3) * 23, int(r.end.x), 69):
+			ci.draw_rect(Rect2(sx, yy + 1, 1, 7), Color("241810"))
+	# bunte Fahnen als Farbprobe
+	for i in 6:
+		ci.draw_rect(Rect2(r.position.x + 12.0 + float(i) * 38.0, r.position.y + 6, 24, 8), [Color("c0392b"), Color("e6b030"), Color("3f8f4a"), Color("3a6fc0"), Color("8a4fb0"), Color("e6e0cc")][i])
+
+
+func _mat(shader_path: String, params: Dictionary) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load(shader_path)
+	for k in params:
+		m.set_shader_parameter(k, params[k])
+	return m
+
+
+# --- e: Shader auf Sprites -------------------------------------------------------------------------------
+
+func _build_e() -> void:
+	var bg := DL.new()
+	bg.fn = func(ci: CanvasItem) -> void:
+		_bg(ci, Rect2(0, 0, 480, 320))
+		_label(ci, Vector2(6, 160), "Material je Figur (set_shader_parameter)")
+		_label(ci, Vector2(6, 314), "ein gemeinsames Material, Werte je Sprite (set_instance_shader_parameter)")
+	add_child(bg)
+	var cols: Array = [
+		{"n": "normal"},
+		{"n": "Blitz", "flash": 1.0},
+		{"n": "Umriss", "outline": Color(1.0, 0.82, 0.35, 1.0)},
+		{"n": "entsättigt", "desat": 0.85},
+		{"n": "Treffer", "tint": Color(1.0, 0.35, 0.32, 0.85)},
+		{"n": "Ort+dunkel", "tint": Color(0.35, 0.9, 0.72, 0.55), "dim": 0.45, "desat": 0.5},
+	]
+	var names := DL.new()
+	names.fn = func(ci: CanvasItem) -> void:
+		for i in cols.size():
+			_label(ci, Vector2(26.0 + float(i) * 76.0, 148), String(cols[i]["n"]))
+			_label(ci, Vector2(26.0 + float(i) * 76.0, 302), String(cols[i]["n"]))
+	for i in cols.size():
+		var params: Dictionary = (cols[i] as Dictionary).duplicate()
+		params.erase("n")
+		_sprite(self, Vector2(48.0 + float(i) * 76.0, 140), 1, 0, _mat("res://shaders/fighter_fx.gdshader", params))
+	var shared := ShaderMaterial.new()
+	shared.shader = load("res://shaders/fighter_inst.gdshader")
+	var ok := 0
+	for i in cols.size():
+		var sp := _sprite(self, Vector2(48.0 + float(i) * 76.0, 294), 2, 0, shared)
+		if sp.has_method("set_instance_shader_parameter"):
+			for k in cols[i]:
+				if k != "n":
+					sp.set_instance_shader_parameter(k, cols[i][k])
+					ok += 1
+	print("STAGETEST e: set_instance_shader_parameter vorhanden: ", ok > 0, " (", ok, " Werte gesetzt)")
+	add_child(names)
+
+
+# --- a: Bildschirm-Shader --------------------------------------------------------------------------------
+
+func _build_a() -> void:
+	var bg := DL.new()
+	bg.fn = func(ci: CanvasItem) -> void:
+		_bg(ci, Rect2(0, 0, 480, 168))
+		ci.draw_rect(Rect2(0, 168, 480, 152), Color("0d0b10"))
+		_label(ci, Vector2(6, 160), "ohne Abstufung")
+		_label(ci, Vector2(246, 160), "mit stage_grade.gdshader (ColorRect)")
+		ci.draw_rect(Rect2(239, 0, 2, 168), Color(1, 0, 1))
+	add_child(bg)
+	for half in 2:
+		for i in 3:
+			_sprite(self, Vector2(40.0 + float(half) * 240.0 + float(i) * 70.0, 130), i, 0, null)
+	var g := ColorRect.new()
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	g.position = Vector2(240, 0)
+	g.size = Vector2(240, 168)
+	g.material = _mat("res://shaders/stage_grade.gdshader", {
+		"rect_pos": Vector2(240, 0), "rect_size": Vector2(240, 168), "spot": Vector2(310, 100), "spot_r": Vector2(70, 60),
+		"spot_amt": 1.0, "dark": 0.55, "desat": 0.5, "tint": Color(0.35, 0.9, 0.72), "tint_amt": 0.5, "vig": 0.0,
+		"use_screen_uv_for_pos": arg == "bad"})
+	add_child(g)
+	# unten: dasselbe als Vollbild-Abdunkeln über einer Zeile (ganzes Spielfeld breit), um die Ränder zu prüfen
+	var edge := DL.new()
+	edge.fn = func(ci: CanvasItem) -> void:
+		for i in 12:
+			ci.draw_rect(Rect2(float(i) * 40.0, 200, 40, 40), Color.from_hsv(float(i) / 12.0, 0.7, 0.9))
+			ci.draw_rect(Rect2(float(i) * 40.0, 260, 40, 40), Color.from_hsv(float(i) / 12.0, 0.7, 0.9))
+		_label(ci, Vector2(6, 252), "Farbleiste; die untere Reihe liegt unter einem ColorRect über die ganze Breite (Rand links und rechts)")
+	add_child(edge)
+	if arg != "nobbc":
+		var bbc := BackBufferCopy.new()  # ohne diesen Knoten sieht der zweite Shader nur die Kopie des ersten (veraltet: schwarz)
+		bbc.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
+		add_child(bbc)
+	var g2 := ColorRect.new()
+	g2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	g2.position = Vector2(0, 260)
+	g2.size = Vector2(480, 40)
+	g2.material = _mat("res://shaders/stage_grade.gdshader", {
+		"rect_pos": Vector2(0, 260), "rect_size": Vector2(480, 40), "spot": Vector2(240, 280), "spot_r": Vector2(60, 40),
+		"spot_amt": 1.0, "dark": 0.6, "desat": 0.7, "tint": Color(0.5, 0.45, 0.95), "tint_amt": 0.4, "vig": 0.0})
+	add_child(g2)
+
+
+# --- b: Leuchten, additiv ---------------------------------------------------------------------------------
+
+func _build_b() -> void:
+	var bg := DL.new()
+	bg.fn = func(ci: CanvasItem) -> void:
+		ci.draw_rect(Rect2(0, 0, 480, 320), Color("0b0d14"))
+		ci.draw_rect(Rect2(0, 100, 480, 68), Color("241810"))
+		ci.draw_rect(Rect2(0, 100, 480, 1), Color("6b4a30"))
+		for i in 3:
+			ci.draw_rect(Rect2(10 + i * 70, 30, 40, 70), Color("1a2236"))
+		ci.draw_rect(Rect2(239, 0, 2, 168), Color(1, 0, 1))
+		_label(ci, Vector2(6, 160), "Alpha-Mischung (Standard)")
+		_label(ci, Vector2(246, 160), "additiv (CanvasItemMaterial ADD)")
+	add_child(bg)
+	for half in 2:
+		for i in 3:
+			_sprite(self, Vector2(40.0 + float(half) * 240.0 + float(i) * 70.0, 130), i, 0, null)
+	var make := func(ci: CanvasItem) -> void:
+		var base := Vector2(ci.get_meta("ox"), 0)
+		for i in 2:
+			var p := base + Vector2(60.0 + float(i) * 110.0, 62.0)
+			var fl := 0.85 + 0.15 * sin(_t * 9.0 + float(i))
+			ci.draw_texture_rect(_glow, Rect2(p - Vector2(46, 46), Vector2(92, 92)), false, Color(1.0, 0.62, 0.25, 0.7 * fl))
+			ci.draw_texture_rect(_glow, Rect2(p - Vector2(12, 12), Vector2(24, 24)), false, Color(1.0, 1.0, 0.85, 0.95))
+			ci.draw_rect(Rect2(p.x - 2, p.y - 3, 5, 7), Color(0.95, 0.9, 0.7))
+			for k in 5:
+				var age := fposmod(_t * 0.5 + float(k) * 0.2 + float(i) * 0.1, 1.0)
+				ci.draw_rect(Rect2(roundf(p.x + sin(age * 7.0 + float(k)) * 8.0), roundf(p.y - 4.0 - age * 30.0), 1, 1), Color(1.0, 0.8, 0.4, 1.0 - age))
+		# Blitz: ein weisser Streifen mit Alpha
+		ci.draw_rect(Rect2(base.x + 10, 112, 200, 10), Color(0.5, 0.6, 1.0, 0.35))
+	var l1 := DL.new()
+	l1.set_meta("ox", 0.0)
+	l1.fn = make
+	add_child(l1)
+	var l2 := DL.new()
+	l2.set_meta("ox", 240.0)
+	l2.fn = make
+	var add := CanvasItemMaterial.new()
+	add.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	l2.material = add
+	add_child(l2)
+	# unten: zweite Reihe, derselbe Aufbau auf hellem Grund (Deck), damit sichtbar wird, wo additiv ausbrennt
+	var bg2 := DL.new()
+	bg2.fn = func(ci: CanvasItem) -> void:
+		ci.draw_rect(Rect2(0, 180, 480, 60), Color("8a6a40"))
+		_label(ci, Vector2(6, 236), "heller Grund: Mischung links, additiv rechts brennt aus", Color(0, 0, 0))
+	add_child(bg2)
+	var l3 := DL.new()
+	l3.set_meta("ox", 0.0)
+	l3.fn = func(ci: CanvasItem) -> void:
+		ci.draw_texture_rect(_glow, Rect2(Vector2(60, 140), Vector2(92, 92)), false, Color(1.0, 0.62, 0.25, 0.7))
+	add_child(l3)
+	var l4 := DL.new()
+	l4.fn = func(ci: CanvasItem) -> void:
+		ci.draw_texture_rect(_glow, Rect2(Vector2(300, 140), Vector2(92, 92)), false, Color(1.0, 0.62, 0.25, 0.7))
+	var add2 := CanvasItemMaterial.new()
+	add2.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	l4.material = add2
+	add_child(l4)
+
+
+# --- c: Schichten in einem Control mit draw_set_transform (wie Hud._draw) -------------------------------------
+
+func _build_c() -> void:
+	var z := float(arg) if arg != "" else 1.0
+	var h := HudLike.new()
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.size = Vector2(480, 320)
+	h.fn = func(ci: CanvasItem) -> void:
+		var focus := Vector2(160.0, 100.0)
+		var t := Vector2(160.0 - focus.x * z, 120.0 * (1.0 - z))
+		t.x = clampf(t.x, 480.0 * (1.0 - z), 0.0)
+		# Tiefen: 0,3 fern, 1 Figuren, 1,45 nah (gleiche Formel wie die Bühne)
+		var layer := func(depth: float) -> void:
+			var s := 1.0 + (z - 1.0) * depth
+			ci.draw_set_transform((t * depth).round(), 0.0, Vector2(s, s))
+		# Himmel (fern)
+		layer.call(0.0)
+		ci.draw_rect(Rect2(0, 0, 480, 168), Color("1a2236"))
+		for i in 8:
+			ci.draw_rect(Rect2(0, float(i) * 12.0, 480, 6), Color("222c44"))
+		layer.call(0.3)
+		var src := Rect2(2 * 128, 0, 128, 96)
+		ci.draw_texture_rect_region(_enemies, Rect2(Vector2(280, 44), Vector2(192, 144)), src)
+		var ssrc := Rect2(15 * 220 + 56, 4 * 156 + 18, 112, 78)
+		ci.draw_texture_rect_region(_ship, Rect2(Vector2(20, 16), Vector2(168, 117)), ssrc)
+		# Deck und Figuren (1)
+		layer.call(1.0)
+		ci.draw_rect(Rect2(-60, 114, 600, 60), Color("3b2a1d"))
+		for row in 6:
+			ci.draw_rect(Rect2(-60, 114.0 + float(row) * 8.0, 600, 1), Color("241810"))
+			for sx in range(-60 + (row % 3) * 23, 540, 69):
+				ci.draw_rect(Rect2(sx, 115.0 + float(row) * 8.0, 1, 7), Color("241810"))
+		ci.draw_rect(Rect2(-60, 104, 600, 6), Color("2a1d12"))
+		for i in 8:
+			var x := 44.0 + float(i) * 54.0
+			var row2 := i % 4 if i < 4 else 12 + (i % 4)
+			ci.draw_texture_rect_region(_combat, Rect2(roundf(x - 22.0), 68.0, 44, 56), Rect2(float(1) * 44.0, float(row2) * 56.0, 44, 56))
+		# Vordergrund (1,45)
+		layer.call(1.45)
+		ci.draw_rect(Rect2(-14, 128, 40, 60), Color(0.035, 0.03, 0.035))
+		ci.draw_rect(Rect2(-14, 128, 40, 2), Color(0.14, 0.12, 0.1))
+		ci.draw_rect(Rect2(450, 134, 40, 60), Color(0.035, 0.03, 0.035))
+		for k in 24:
+			ci.draw_rect(Rect2(150 + k * 8, 4.0 + sin(float(k) / 24.0 * PI) * 14.0, 6, 2), Color(0.04, 0.03, 0.04))
+		ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		# Beschriftung ungestreckt, an transformierter Stelle
+		var xf := Transform2D(Vector2(z, 0), Vector2(0, z), t.round())
+		for i in 4:
+			var p := xf * Vector2(44.0 + float(i) * 54.0, 134.0)
+			ci.draw_string(_font, p + Vector2(-14, 0), "Mann %d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, 28, 8, Color(0.9, 0.9, 0.8))
+		ci.draw_string(_font, Vector2(6, 312), "draw_set_transform in einem Control, Zoom %.2f" % z, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(1, 1, 1))
+	add_child(h)
+
+
+# --- d: Zoomgüte ------------------------------------------------------------------------------------------
+
+func _build_d() -> void:
+	var scales := [1.0, 1.5, 2.0]
+	if arg != "":
+		scales = [1.0, float(arg), 2.0]
+	var h := HudLike.new()
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.size = Vector2(480, 320)
+	h.fn = func(ci: CanvasItem) -> void:
+		ci.draw_rect(Rect2(0, 0, 480, 320), Color("20242c"))
+		# Weg 1: draw_set_transform im Control
+		for s in 3:
+			var z: float = scales[s]
+			var x := 20.0 + float(s) * 150.0
+			ci.draw_set_transform(Vector2(x, 6.0), 0.0, Vector2(z, z))
+			ci.draw_texture_rect_region(_combat, Rect2(0, 0, 44, 56), Rect2(0, 56, 44, 56))
+			ci.draw_texture_rect(_stripe, Rect2(0, 58, 16, 4), false)
+			ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			ci.draw_string(_font, Vector2(x, 4.0 + 104.0), "draw_set_transform %.1fx" % z, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color.WHITE)
+	add_child(h)
+	for s in 3:
+		var z: float = scales[s]
+		var x := 20.0 + float(s) * 150.0
+		# Weg 2: Sprite2D.scale
+		var sp := Sprite2D.new()
+		sp.centered = false
+		sp.texture = _fig_tex(1, 0)
+		sp.offset = Vector2(-PAD, -PAD)
+		sp.position = Vector2(x, 112.0)
+		sp.scale = Vector2(z, z)
+		add_child(sp)
+		var st := Sprite2D.new()
+		st.centered = false
+		st.texture = _stripe
+		st.position = Vector2(x, 112.0 + 58.0 * z)
+		st.scale = Vector2(z, z)
+		add_child(st)
+		# Weg 3: Eltern-Node2D.scale (so skaliert die Kamera der Bühne)
+		var par := Node2D.new()
+		par.position = Vector2(x, 218.0)
+		par.scale = Vector2(z, z)
+		add_child(par)
+		var sp3 := Sprite2D.new()
+		sp3.centered = false
+		sp3.texture = _fig_tex(1, 0)
+		sp3.offset = Vector2(-PAD, -PAD)
+		par.add_child(sp3)
+		var st3 := Sprite2D.new()
+		st3.centered = false
+		st3.texture = _stripe
+		st3.position = Vector2(0, 58)
+		par.add_child(st3)
+	var lab := DL.new()
+	lab.fn = func(ci: CanvasItem) -> void:
+		for s in 3:
+			var z: float = scales[s]
+			var x := 20.0 + float(s) * 150.0
+			_label(ci, Vector2(x, 110.0 + 104.0), "Sprite2D.scale %.1fx" % z)
+			_label(ci, Vector2(x, 216.0 + 104.0), "Eltern-Node2D %.1fx" % z)
+	add_child(lab)
+
+
+# --- i: Eingabe -----------------------------------------------------------------------------------------
+
+func _build_i() -> void:
+	var bg := DL.new()
+	bg.fn = func(ci: CanvasItem) -> void:
+		ci.draw_rect(Rect2(0, 0, 480, 320), Color("20242c"))
+		_label(ci, Vector2(6, 20), "Eingabetest: Ergebnis steht in der Ausgabe (STAGETEST i)")
+	add_child(bg)
+
+
+func _input_step() -> void:
+	_input_wait += 1
+	if _input_wait < 8:
+		return
+	_input_wait = 0
+	var vp := get_viewport()
+	match _input_phase:
+		0:
+			# Phase 0: nichts im Weg -> der Klick muss ankommen
+			_input_hits = 0
+			_push_click(vp)
+			_input_phase = 1
+		1:
+			print("STAGETEST i: freier Klick -> _unhandled_input erhielt ", _input_hits, " Klick(s)")
+			var r := ColorRect.new()
+			r.name = "StopRect"
+			r.size = Vector2(480, 168)
+			r.mouse_filter = Control.MOUSE_FILTER_STOP
+			r.gui_input.connect(func(_e: InputEvent) -> void: _gui_hits += 1)
+			add_child(r)
+			_input_hits = 0
+			_push_click(vp)
+			_input_phase = 2
+		2:
+			print("STAGETEST i: ColorRect mouse_filter=STOP (Standard) -> _unhandled_input erhielt ", _input_hits, " Klick(s), das ColorRect selbst ", _gui_hits)
+			(get_node("StopRect") as ColorRect).mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_input_hits = 0
+			_push_click(vp)
+			_input_phase = 3
+		3:
+			print("STAGETEST i: ColorRect mouse_filter=IGNORE -> _unhandled_input erhielt ", _input_hits, " Klick(s)")
+			var n := Node2D.new()
+			var s2 := Sprite2D.new()
+			s2.texture = _stripe
+			n.add_child(s2)
+			add_child(n)
+			var cl := Control.new()
+			cl.size = Vector2(480, 168)
+			cl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			cl.clip_contents = true
+			add_child(cl)
+			var cg := CanvasLayer.new()
+			cg.layer = 0
+			add_child(cg)
+			var rr := ColorRect.new()
+			rr.size = Vector2(480, 168)
+			rr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			cg.add_child(rr)
+			_input_hits = 0
+			_push_click(vp)
+			_input_phase = 4
+		4:
+			print("STAGETEST i: Node2D, Sprite2D, Control(clip), CanvasLayer+ColorRect alle IGNORE -> _unhandled_input erhielt ", _input_hits, " Klick(s)")
+			_input_phase = 5
+
+
+func _push_click(vp: Viewport) -> void:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = true
+	# Fensterkoordinaten des Spielfeldpunkts (100, 100): die Abstufung der Letterbox-Ränder und der Stretch gehören dazu
+	ev.position = get_window().get_final_transform() * Vector2(100, 100)
+	ev.global_position = ev.position
+	Input.parse_input_event(ev)  # der echte Weg: Eingabewarteschlange, dann GUI, dann _unhandled_input
+
+
+# --- v: Kamera als SubViewport ----------------------------------------------------------------------------
+
+func _build_v() -> void:
+	var rs := float(arg) if arg != "" else 1.0
+	var sv := SubViewport.new()
+	sv.size = Vector2i(int(480.0 * rs), int(320.0 * rs))
+	sv.transparent_bg = false
+	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(sv)
+	var back := ColorRect.new()
+	back.color = Color("20242c")
+	back.size = Vector2(480.0, 320.0) * rs
+	sv.add_child(back)
+	var scales := [1.0, 1.5, 2.0]
+	for s in 3:
+		var z: float = scales[s]
+		var par := Node2D.new()
+		par.position = Vector2(20.0 + float(s) * 150.0, 6.0) * rs
+		par.scale = Vector2(z, z) * rs
+		sv.add_child(par)
+		var sp := Sprite2D.new()
+		sp.centered = false
+		sp.texture = _fig_tex(1, 0)
+		sp.offset = Vector2(-PAD, -PAD)
+		par.add_child(sp)
+		var st := Sprite2D.new()
+		st.centered = false
+		st.texture = _stripe
+		st.position = Vector2(0, 58)
+		par.add_child(st)
+	var tr := TextureRect.new()
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.texture = sv.get_texture()
+	tr.position = Vector2.ZERO
+	tr.size = Vector2(480.0, 320.0)
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(tr)
+	var lab := DL.new()
+	lab.fn = func(ci: CanvasItem) -> void:
+		_label(ci, Vector2(6, 312), "SubViewport %dx%d, Kamera = Node2D.scale, angezeigt als TextureRect (Nearest)" % [sv.size.x, sv.size.y])
+	add_child(lab)

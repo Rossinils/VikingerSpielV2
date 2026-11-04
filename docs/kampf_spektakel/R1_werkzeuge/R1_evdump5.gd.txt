@@ -1,0 +1,158 @@
+extends SceneTree
+
+## Nur für die Analyse (Arbeitskopie "ablauf"): Häufigkeiten der Ereignisklassen je Kampf, damit das Inszenierungsbudget stimmt.
+
+var v: Voyage
+
+
+func _init() -> void:
+	v = Voyage.new()
+	v.auto_combat = true
+	root.add_child(v)
+	v.begin()
+	seed(21)
+	for form in ["draugr", "raeuber", "haendler", "dorf", "kraken"]:
+		_stat(form, 3, 100.0)
+	_stat("draugr", 3, 60.0)
+	_stat("kraken", 5, 60.0)
+	quit()
+
+
+func _stat(form: String, stage: int, kraft: float) -> void:
+	var N := 80
+	var acts_h := 0
+	var acts_f := 0
+	var silent_h := 0
+	var silent_f := 0
+	var attacks_h := 0
+	var attacks_f := 0
+	var no_target := 0  # Angriff ohne jedes Ziel-Ereignis (Lieder, Schutz, Wut, Klage, Hohn ...)
+	var single := 0
+	var multi := 0
+	var hits_h := 0  # Treffer der Männer auf Gegner
+	var hits_f := 0  # Treffer der Gegner auf Männer
+	var crit_h := 0
+	var crit_f := 0
+	var miss := 0
+	var die_foe := 0
+	var die_hero := 0
+	var last_kill := 0
+	var bleed_hits := 0
+	var heal := 0
+	var texts := 0
+	var snaps := 0
+	var heroics := 0
+	var overb := 0
+	var spawn := 0
+	var rounds := 0
+	var maxbatch := 0
+	var evtotal := 0
+	var multi_targets_sum := 0
+	for k in N:
+		var party: Array = []
+		var roles := [Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE]
+		for i in 4:
+			var m := CrewMember.new()
+			m.id = 900 + i
+			m.display_name = "Q%d" % i
+			m.role = roles[i]
+			m.kraft = kraft
+			m.stress = 0.0
+			party.append(m)
+		var c := Combat.create(v, form, party, Foes.units_for(form, stage), stage)
+		c.begin()
+		var n := 0
+		while c.state != "done" and n < 400:
+			n += 1
+			var e0 := c._ev_id
+			var side_hero := c.state == "hero"
+			if side_hero:
+				acts_h += 1
+				c.auto_hero()
+			else:
+				acts_f += 1
+				c.act_foe()
+			var batch: Array = []
+			for ev in c.events:
+				if int(ev["id"]) > e0:
+					batch.append(ev)
+			maxbatch = maxi(maxbatch, batch.size())
+			if batch.is_empty():
+				if side_hero:
+					silent_h += 1
+				else:
+					silent_f += 1
+				continue
+			# Gliederung des Zuges: jedes "attack" beginnt eine Handlung
+			var cur_targets := -1
+			for ev in batch:
+				var t := String(ev["type"])
+				match t:
+					"attack":
+						if cur_targets == 0:
+							no_target += 1
+						elif cur_targets == 1:
+							single += 1
+						elif cur_targets > 1:
+							multi += 1
+							multi_targets_sum += cur_targets
+						cur_targets = 0
+						if (ev["who"] as Combat.Fighter).side == 0:
+							attacks_h += 1
+						else:
+							attacks_f += 1
+					"hit", "miss", "heal", "text":
+						var who: Combat.Fighter = ev["who"]
+						if t == "hit":
+							if String(ev["sk"]) == "":
+								bleed_hits += 1
+							elif who.side == 1:
+								hits_h += 1
+								if bool(ev["crit"]):
+									crit_h += 1
+							else:
+								hits_f += 1
+								if bool(ev["crit"]):
+									crit_f += 1
+							if cur_targets >= 0 and String(ev["sk"]) != "":
+								cur_targets += 1
+						elif t == "miss":
+							miss += 1
+							if cur_targets >= 0:
+								cur_targets += 1
+						elif t == "heal":
+							heal += 1
+							if cur_targets >= 0:
+								cur_targets += 1
+						else:
+							texts += 1
+					"die":
+						if (ev["who"] as Combat.Fighter).side == 1:
+							die_foe += 1
+						else:
+							die_hero += 1
+					"snap":
+						snaps += 1
+					"heroic":
+						heroics += 1
+					"overboard":
+						overb += 1
+					"spawn":
+						spawn += 1
+			if cur_targets == 0:
+				no_target += 1
+			elif cur_targets == 1:
+				single += 1
+			elif cur_targets > 1:
+				multi += 1
+				multi_targets_sum += cur_targets
+		rounds += c.round_no
+		evtotal += c._ev_id
+		if c.result == "win":
+			last_kill += 1
+	var f := float(N)
+	print("%-8s Etappe %d Kraft %3d | Runden %.1f | Züge Männer %.1f (still %.1f) Gegner %.1f (still %.1f) | Angriffe M %.1f G %.1f | ohne Zielereignis %.1f, Einzelziel %.1f, Fläche %.1f (im Mittel %.1f Ziele) | Treffer M->G %.1f (Krit %.2f), G->M %.1f (Krit %.2f), verfehlt %.1f, Blutung %.1f, Heilung %.1f | Tode Gegner %.1f, Männer %.2f, über Bord %.2f, Heldenmut %.2f, Bruch %.2f, Beschwörung/Nachwuchs %.2f | Ereignisse %.1f, größter Zug %d | Siege %d/%d" % [
+		form, stage, roundi(kraft), float(rounds) / f, float(acts_h) / f, float(silent_h) / f, float(acts_f) / f, float(silent_f) / f,
+		float(attacks_h) / f, float(attacks_f) / f, float(no_target) / f, float(single) / f, float(multi) / f, float(multi_targets_sum) / maxf(float(multi), 1.0),
+		float(hits_h) / f, float(crit_h) / f, float(hits_f) / f, float(crit_f) / f, float(miss) / f, float(bleed_hits) / f, float(heal) / f,
+		float(die_foe) / f, float(die_hero) / f, float(overb) / f, float(heroics) / f, float(snaps) / f, float(spawn) / f, float(evtotal) / f, maxbatch, last_kill, N])

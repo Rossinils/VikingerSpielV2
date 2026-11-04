@@ -1,0 +1,1210 @@
+--- _backup_vor_kampfspektakel/scripts/hud.gd	2026-11-02 23:39:16.572486400 +0100
++++ _sandbox/oberflaeche/scripts/hud.gd	2026-11-03 23:24:35.808132500 +0100
+@@ -1699,11 +1699,22 @@
+ 
+ # --- Deckkampf --------------------------------------------------------------------
+ 
+-const FIGHT_HERO_X := [206.0, 152.0, 98.0, 44.0]  # Mitte je Reihe (Reihe 1 steht der Mitte am nächsten)
+-const FIGHT_FOE_X := [274.0, 328.0, 382.0, 436.0]
+-const FIGHT_FEET := 120.0  # Zeile, auf der die Füße stehen
++const FIGHT_HERO_X := [212.0, 156.0, 100.0, 44.0]
++const FIGHT_FOE_X := [268.0, 324.0, 380.0, 436.0]
++const FIGHT_FEET := 172.0  # R5-Entwurf: Füße auf Zeile 172, Bühne 0..215
+ const FIG_W := 44.0
+ const FIG_H := 56.0
++const FIG_SC := 2.0  # R5-Entwurf: Figuren 2fach (88x112)
++const BIG_SC := 1.5  # R5-Entwurf: Riesenfiguren 1,5fach
++const FIGHT_BIG_X := 408.0
++const UI_BAR_Y := 215.0  # R5-Entwurf: Oberkante der unteren Leiste
++
++var _chron_open := false  # Chronik-Platte (Taste Tab)
++var _hover_fighter: Combat.Fighter = null
++var _hover_status := -1  # Zustandssymbol unter der Maus (Platz in _status_list), -1 keines
++var debug_flags: Array = []  # nur Screenshots: --hudflag=chron,zones,zonesist
++var debug_zimg := ""  # nur Screenshots: --zimg=Pfad (Hintergrund für zonesist)
++var _zimg: Texture2D = null
+ 
+ var _fight_skill := ""  # gewählte Fertigkeit, die noch ein Ziel braucht
+ var _fight_move := false  # "Reihe wechseln": der Mann, mit dem getauscht wird, wird gewählt
+@@ -1760,6 +1771,9 @@
+ 			voy.fight_begin()
+ 		return
+ 	var c := voy.combat
++	if id == "fchron":
++		_chron_open = not _chron_open
++		return
+ 	if c.state != "hero":
+ 		return
+ 	if id.begins_with("fs"):
+@@ -1768,6 +1782,8 @@
+ 		if slot < 0 or slot >= opts.size():
+ 			return
+ 		var sid := opts[slot]
++		if sid == "":
++			return  # leerer Fertigkeitsplatz (weniger als vier gewählt): Platztausch bleibt immer 5, Rückzug immer 6
+ 		_fight_move = false
+ 		_fight_skill = ""
+ 		if sid == "move":
+@@ -1814,9 +1830,14 @@
+ 		return
+ 	if key >= KEY_1 and key <= KEY_6:
+ 		fight_click("fs%d" % (key - KEY_1))
++	elif key == KEY_TAB:
++		fight_click("fchron")
+ 	elif key == KEY_SPACE:
+ 		fight_click("fwait")
+ 	elif key == KEY_ESCAPE:
++		if _chron_open:
++			_chron_open = false
++			return
+ 		_fight_skill = ""
+ 		_fight_move = false
+ 	elif key == KEY_Q or key == KEY_W or key == KEY_E or key == KEY_R:
+@@ -1830,6 +1851,8 @@
+ 	if c.actor != null:
+ 		for s in c.actor.skills:
+ 			out.append(String(s))
++	while out.size() < 4:
++		out.append("")  # leere Plätze, damit Platztausch immer 5 und Rückzug immer 6 bleibt
+ 	out.append("move")
+ 	out.append("flee")
+ 	return out
+@@ -1848,14 +1871,14 @@
+ ## Riesenfiguren stehen immer ganz rechts, hinter den anderen Gegnern.
+ func _fig_x(f: Combat.Fighter) -> float:
+ 	if _is_big(f):
+-		return FIGHT_FOE_X[3]
++		return FIGHT_BIG_X
+ 	return FIGHT_HERO_X[f.rank] if f.side == 0 else FIGHT_FOE_X[f.rank]
+ 
+ 
+ func _fighter_rect(f: Combat.Fighter) -> Rect2:
+ 	if _is_big(f):
+-		return Rect2(_fig_x(f) - 38.0, FIGHT_FEET - 88.0, 76.0, 80.0)
+-	return Rect2(_fig_x(f) - 22.0, FIGHT_FEET - 48.0, 44.0, 52.0)
++		return Rect2(_fig_x(f) - 56.0, FIGHT_FEET - 150.0, 112.0, 186.0)
++	return Rect2(_fig_x(f) - 27.0, FIGHT_FEET - 100.0, 54.0, 136.0)
+ 
+ 
+ func _fig_row(f: Combat.Fighter) -> int:
+@@ -1908,7 +1931,7 @@
+ 	var loud := fresh <= 24
+ 	if _intro_pending:
+ 		_intro_pending = false
+-		if c.round_no <= 1 and loud:
++		if c.round_no <= 1 and loud and not debug_flags.has("nointro"):
+ 			var boss := c.formation == "kraken"
+ 			_fx.show_big("DER KRAKEN" if boss else "KAMPF", "Fangarme zuerst, dann der Körper" if boss else String(Foes.FORMATIONS[c.formation]["name"]), Color(0.9, 0.35, 0.35), 1.9 if boss else 1.5)
+ 			_fx.flash(Color(0, 0, 0, 0.5), 0.7)
+@@ -1939,7 +1962,7 @@
+ 				var crit := bool(ev["crit"])
+ 				var dmg := int(ev["n"])
+ 				_anim[who] = {"kind": "hit", "t": 0.42, "wait": hw}
+-				_floats.append({"x": fx, "y": FIGHT_FEET - 44.0, "text": "−%d" % dmg, "col": GOLD if crit else (Color(0.95, 0.45, 0.4) if who.side == 0 else PAPER), "t": 1.0, "big": crit, "wait": hw})
++				_floats.append({"x": fx, "y": FIGHT_FEET - 2*44.0, "text": "−%d" % dmg, "col": GOLD if crit else (Color(0.95, 0.45, 0.4) if who.side == 0 else PAPER), "t": 1.0, "big": crit, "wait": hw})
+ 				if loud:
+ 					Sfx.play(Sfx.skill_sound(sk, "hit"), 2.0 if crit else 0.0, hw)
+ 					if crit:
+@@ -1948,16 +1971,16 @@
+ 					_ev_stagger += 1
+ 			"miss":
+ 				_anim[who] = {"kind": "dodge", "t": 0.3, "wait": hw}
+-				_floats.append({"x": fx, "y": FIGHT_FEET - 40.0, "text": "verfehlt", "col": Color(DIM, 0.95), "t": 0.9, "big": false, "wait": hw})
++				_floats.append({"x": fx, "y": FIGHT_FEET - 2*40.0, "text": "verfehlt", "col": Color(DIM, 0.95), "t": 0.9, "big": false, "wait": hw})
+ 				if loud:
+ 					Sfx.play("whiff", 0.0, hw)
+ 					_fx_miss(who, sk, hw)
+ 					_ev_stagger += 1
+ 			"heal":
+-				_floats.append({"x": fx, "y": FIGHT_FEET - 44.0, "text": "+%d" % int(ev["n"]), "col": GREEN, "t": 1.0, "big": false, "wait": 0.25})
++				_floats.append({"x": fx, "y": FIGHT_FEET - 2*44.0, "text": "+%d" % int(ev["n"]), "col": GREEN, "t": 1.0, "big": false, "wait": 0.25})
+ 				if loud:
+ 					Sfx.play("heal", 0.0, 0.25)
+-					_fx.add("heal", {"x": fx, "y": FIGHT_FEET - 34.0}, 0.25, 0.9)
++					_fx.add("heal", {"x": fx, "y": FIGHT_FEET - 2*34.0}, 0.25, 0.9)
+ 			"die":
+ 				var hold := 0.2 + 0.13 * float(maxi(_ev_stagger - 1, 0))
+ 				var big := _is_big(who)
+@@ -1969,7 +1992,7 @@
+ 					if big:
+ 						_fx.cue("flash", {"col": Color(1, 1, 1, 0.5), "d": 0.6}, hold)
+ 					_slow(1.2)
+-					var focus := Vector2(fx, FIGHT_FEET - 30.0)
++					var focus := Vector2(fx, FIGHT_FEET - 2*30.0)
+ 					if who.side == 0:
+ 						_fx.cue("slowmo", {"f": 0.35, "d": 0.8}, hold)
+ 						_fx.cue("zoom", {"amp": 0.08, "d": 0.8, "fx": fx, "fy": focus.y}, hold)
+@@ -1981,14 +2004,14 @@
+ 						_fx.cue("zoom", {"amp": 0.11, "d": 1.0, "fx": fx, "fy": focus.y}, hold)
+ 			"overboard":
+ 				_ghosts.append({"f": who, "t": 0.7})
+-				_floats.append({"x": fx, "y": FIGHT_FEET - 44.0, "text": "über Bord!", "col": Color(0.6, 0.8, 0.95), "t": 1.3, "big": true, "wait": 0.0})
++				_floats.append({"x": fx, "y": FIGHT_FEET - 2*44.0, "text": "über Bord!", "col": Color(0.6, 0.8, 0.95), "t": 1.3, "big": true, "wait": 0.0})
+ 				if loud:
+ 					Sfx.play("splash", 0.0, 0.3)
+-					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 20.0, "r": 22.0, "col": Color(0.6, 0.8, 0.95, 0.9), "w": 2.0}, 0.2, 0.6)
++					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 2*20.0, "r": 22.0, "col": Color(0.6, 0.8, 0.95, 0.9), "w": 2.0}, 0.2, 0.6)
+ 					_fx.cue("shake", {"amp": 2.5, "d": 0.25}, 0.2)
+ 			"spawn":
+ 				var stx := String(ev.get("text", ""))
+-				_floats.append({"x": fx, "y": FIGHT_FEET - 44.0, "text": stx if stx != "" else "wächst nach", "col": VIOLET, "t": 1.2, "big": false, "wait": 0.0})
++				_floats.append({"x": fx, "y": FIGHT_FEET - 2*44.0, "text": stx if stx != "" else "wächst nach", "col": VIOLET, "t": 1.2, "big": false, "wait": 0.0})
+ 				if loud:
+ 					Sfx.play("bones" if stx == "beschworen" else "tentacle", -3.0)
+ 					_fx.add("dust", {"x": fx}, 0.0, 0.6)
+@@ -2007,8 +2030,8 @@
+ 					Sfx.play("heroic")
+ 					_fx.show_big("HELDENMUT", "%s: %s" % [who.name, String(ev.get("text", ""))], GOLD, 2.3)
+ 					_fx.flash(Color(1.0, 0.85, 0.4, 0.4), 0.55)
+-					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 26.0, "r": 40.0, "col": Color(1.0, 0.85, 0.4, 0.9), "w": 2.0}, 0.0, 0.8)
+-					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 26.0, "r": 24.0, "col": Color(1.0, 1.0, 0.8, 0.9), "w": 1.0}, 0.15, 0.7)
++					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 2*26.0, "r": 40.0, "col": Color(1.0, 0.85, 0.4, 0.9), "w": 2.0}, 0.0, 0.8)
++					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 2*26.0, "r": 24.0, "col": Color(1.0, 1.0, 0.8, 0.9), "w": 1.0}, 0.15, 0.7)
+ 					_slow(2.4)
+ 			"snap":
+ 				if loud:
+@@ -2053,20 +2076,20 @@
+ ## Wirkung beim Ausholen: Lieder, Schild, Klage, Tinte, Zerquetschen, Schüsse, Wut, Nachladen, Horn, Beschwörung.
+ func _fx_go(c: Combat, who: Combat.Fighter, sk: String) -> void:
+ 	var gx := _fig_x(who)
+-	var gy := FIGHT_FEET - 30.0
++	var gy := FIGHT_FEET - 2*30.0
+ 	var dirv := 1.0 if who.side == 0 else -1.0
+ 	match FightFx.go_fx(sk):
+ 		"shield":
+-			_fx.add("shield", {"x": gx + 8.0 * dirv, "y": FIGHT_FEET - 26.0}, 0.0, 0.7)
++			_fx.add("shield", {"x": gx + 8.0 * dirv, "y": FIGHT_FEET - 2*26.0}, 0.0, 0.7)
+ 		"notes":
+-			_fx.add("notes", {"x": gx, "y": FIGHT_FEET - 32.0, "col": Color(0.7, 0.85, 1.0)}, 0.0, 1.1)
++			_fx.add("notes", {"x": gx, "y": FIGHT_FEET - 2*32.0, "col": Color(0.7, 0.85, 1.0)}, 0.0, 1.1)
+ 		"warsong":
+-			_fx.add("notes", {"x": gx, "y": FIGHT_FEET - 32.0, "col": GOLD}, 0.0, 1.1)
++			_fx.add("notes", {"x": gx, "y": FIGHT_FEET - 2*32.0, "col": GOLD}, 0.0, 1.1)
+ 			for h in c.heroes:
+-				_fx.add("ring", {"x": _fig_x(h), "y": FIGHT_FEET - 24.0, "r": 16.0, "col": Color(GOLD, 0.9), "w": 1.0}, 0.2, 0.6)
++				_fx.add("ring", {"x": _fig_x(h), "y": FIGHT_FEET - 2*24.0, "r": 16.0, "col": Color(GOLD, 0.9), "w": 1.0}, 0.2, 0.6)
+ 		"wail":
+ 			for i in 3:
+-				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 30.0, "r": 90.0, "col": Color(0.6, 0.95, 0.8, 0.7), "w": 2.0}, float(i) * 0.15, 0.8)
++				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 2*30.0, "r": 90.0, "col": Color(0.6, 0.95, 0.8, 0.7), "w": 2.0}, float(i) * 0.15, 0.8)
+ 		"ink":
+ 			_fx.add("ink", {}, 0.1, 1.3)
+ 			_fx.cue("shake", {"amp": 1.5, "d": 0.3}, 0.2)
+@@ -2076,21 +2099,21 @@
+ 			_slow(1.5)
+ 		"taunt":
+ 			for i in 2:
+-				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 28.0, "r": 34.0, "col": Color(0.95, 0.4, 0.3, 0.9), "w": 2.0}, float(i) * 0.12, 0.6)
++				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 2*28.0, "r": 34.0, "col": Color(0.95, 0.4, 0.3, 0.9), "w": 2.0}, float(i) * 0.12, 0.6)
+ 			_fx.cue("shake", {"amp": 1.5, "d": 0.2}, 0.0)
+ 		"rage":
+ 			for i in 3:
+-				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 26.0, "r": 26.0, "col": Color(1.0, 0.45, 0.2, 0.9), "w": 2.0}, float(i) * 0.1, 0.5)
++				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 2*26.0, "r": 26.0, "col": Color(1.0, 0.45, 0.2, 0.9), "w": 2.0}, float(i) * 0.1, 0.5)
+ 			_fx.cue("flash", {"col": Color(0.8, 0.15, 0.1, 0.28), "d": 0.3}, 0.0)
+ 		"reload":
+ 			_fx.add("ring", {"x": gx + 8.0 * dirv, "y": gy, "r": 10.0, "col": Color(0.85, 0.85, 0.9, 0.8), "w": 1.0}, 0.0, 0.35)
+ 			_fx.add("spark", {"x": gx + 8.0 * dirv, "y": gy, "col": Color(1.0, 0.85, 0.4), "n": 4, "dir": dirv}, 0.3, 0.4)
+ 		"horn":
+ 			for i in 3:
+-				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 36.0, "r": 70.0, "col": Color(1.0, 0.7, 0.3, 0.7), "w": 2.0}, float(i) * 0.14, 0.7)
++				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 2*36.0, "r": 70.0, "col": Color(1.0, 0.7, 0.3, 0.7), "w": 2.0}, float(i) * 0.14, 0.7)
+ 		"summon":
+ 			for i in 2:
+-				_fx.add("ring", {"x": FIGHT_FOE_X[0], "y": FIGHT_FEET - 20.0, "r": 26.0, "col": Color(0.7, 0.4, 0.95, 0.9), "w": 2.0}, 0.15 + float(i) * 0.15, 0.7)
++				_fx.add("ring", {"x": FIGHT_FOE_X[0], "y": FIGHT_FEET - 2*20.0, "r": 26.0, "col": Color(0.7, 0.4, 0.95, 0.9), "w": 2.0}, 0.15 + float(i) * 0.15, 0.7)
+ 			_fx.cue("shake", {"amp": 2.0, "d": 0.3}, 0.2)
+ 		"bullet":
+ 			# Mündungsfeuer sofort, alle Kugeln fliegen danach einzeln zu ihren Zielen
+@@ -2102,7 +2125,7 @@
+ ## Wirkung eines Treffers am Ziel: Hieb, Pfeil und Kugel im Flug, Biss, Peitschenhieb; Funken; Wucht bei Krit und schwerem Schaden.
+ func _fx_hit(who: Combat.Fighter, sk: String, hw: float, crit: bool, dmg: int) -> void:
+ 	var hx := _fig_x(who)
+-	var hy := FIGHT_FEET - 30.0
++	var hy := FIGHT_FEET - 2*30.0
+ 	var dirv := 1.0 if who.side == 1 else -1.0  # Richtung vom Angreifer zum Ziel
+ 	if FightFx.is_flight(sk) and _ev_actor != null and sk == _ev_sk:
+ 		var ax := _fig_x(_ev_actor)
+@@ -2112,7 +2135,7 @@
+ 			"bullet":
+ 				_fx.add("bullet", {"x": ax + dirv * 14.0, "y": hy, "x2": hx, "y2": hy}, maxf(hw - 0.09, 0.0), 0.09)
+ 			_:
+-				_fx.add("whip", {"x": ax - dirv * 4.0, "y": FIGHT_FEET - 48.0, "x2": hx, "y2": hy}, maxf(hw - 0.22, 0.0), 0.45)
++				_fx.add("whip", {"x": ax - dirv * 4.0, "y": FIGHT_FEET - 2*48.0, "x2": hx, "y2": hy}, maxf(hw - 0.22, 0.0), 0.45)
+ 		_fx.add("ring", {"x": hx, "y": hy, "r": 9.0, "col": Color(1, 1, 1, 0.8), "w": 1.0}, hw, 0.2)
+ 	match FightFx.hit_fx(sk):
+ 		"slash":
+@@ -2149,7 +2172,7 @@
+ ## Ein Fehlschlag: der Pfeil oder die Kugel fliegt vorbei, der Hieb geht ins Leere.
+ func _fx_miss(who: Combat.Fighter, sk: String, hw: float) -> void:
+ 	var hx := _fig_x(who)
+-	var hy := FIGHT_FEET - 30.0
++	var hy := FIGHT_FEET - 2*30.0
+ 	var dirv := 1.0 if who.side == 1 else -1.0
+ 	if FightFx.is_flight(sk) and _ev_actor != null and sk == _ev_sk and FightFx.go_fx(sk) == "arrow":
+ 		var ax := _fig_x(_ev_actor)
+@@ -2187,11 +2210,12 @@
+ 
+ 
+ func _draw_deck() -> void:
+-	# Deck: Planken mit versetzten Fugen, oben die Kante, unten fällt es ins Dunkle
+-	var y0 := FIGHT_FEET - 6.0
++	# R5-Entwurf: Deck bis zur Leiste (Bühne 0..215), Füße auf Zeile FIGHT_FEET
++	var y0 := FIGHT_FEET - 8.0
++	var dh := UI_BAR_Y - y0
+ 	draw_rect(Rect2(-8, y0 - 2, Waves.VIEW_W + 16, 2), Color("0b0a0e"))
+-	draw_rect(Rect2(-8, y0, Waves.VIEW_W + 16, 46), Color("3b2a1d"))
+-	for row in 6:
++	draw_rect(Rect2(-8, y0, Waves.VIEW_W + 16, dh), Color("3b2a1d"))
++	for row in 7:
+ 		var yy := y0 + float(row) * 8.0
+ 		draw_rect(Rect2(-8, yy, Waves.VIEW_W + 16, 1), Color("241810"))
+ 		draw_rect(Rect2(-8, yy + 1, Waves.VIEW_W + 16, 1), Color("5a4129", 0.7))
+@@ -2200,12 +2224,145 @@
+ 			draw_rect(Rect2(sx, yy + 1, 1, 7), Color("241810"))
+ 		for sx in range(off + 6, 480, 69):
+ 			draw_rect(Rect2(sx, yy + 4, 1, 1), Color("a07a4a", 0.6))  # Nagelkopf
+-	draw_rect(Rect2(-8, y0 + 40, Waves.VIEW_W + 16, 6), Color(0.02, 0.02, 0.03, 0.55))
+-	draw_rect(Rect2(239, y0 - 2, 2, 48), Color("0b0a0e"))  # Reling zwischen den Schiffen
+-	draw_rect(Rect2(239, y0 - 2, 1, 48), Color("6b4a30"))
++	draw_rect(Rect2(-8, UI_BAR_Y - 10.0, Waves.VIEW_W + 16, 10), Color(0.02, 0.02, 0.03, 0.55))
++	draw_rect(Rect2(239, y0 - 2, 2, dh + 2), Color("0b0a0e"))  # Reling zwischen den Schiffen
++	draw_rect(Rect2(239, y0 - 2, 1, dh + 2), Color("6b4a30"))
++
++
++## Text mit einem Pixel Schatten statt dicker Umrandung (für kleine Schilder und Marken).
++func _t1(pos: Vector2, s: String, col: Color, size: int = 8, align: int = HORIZONTAL_ALIGNMENT_LEFT, w: float = -1.0, font: Font = null) -> void:
++	var f := font if font != null else _ui
++	draw_string(f, pos + Vector2(0, 1), s, align, w, size, Color(INK, 0.9 * col.a))
++	draw_string(f, pos, s, align, w, size, col)
++
++
++## Größte Schriftgröße aus sizes, in der der Text noch in max_w passt (sonst die kleinste).
++func _fit_size(s: String, max_w: float, sizes: Array, font: Font = null) -> int:
++	var f := font if font != null else _ui
++	for sz in sizes:
++		if f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz)).x <= max_w:
++			return int(sz)
++	return int(sizes[sizes.size() - 1])
++
++
++## Zustände eines Kämpfers als Symbole: [{"i": Spalte im Streifen, "n": Runden (0 = ohne Zahl), "t": Name, "d": Erklärung}]
++func _status_list(f: Combat.Fighter) -> Array:
++	var out: Array = []
++	if f.door and f.side == 0:
++		out.append({"i": 0, "n": 0, "t": "An der Schwelle", "d": "0 Kraft. Der nächste Treffer tötet ihn mit 50 %."})
++	if f.held_by != null and not f.held_by.gone:
++		out.append({"i": 1, "n": maxi(f.held_by.hold_left, 0), "t": "Im Würgegriff", "d": "Kann nichts tun. Fällt der Fangarm nicht, geht er über Bord."})
++	if f.charge:
++		out.append({"i": 3, "n": 0, "t": "Spannt sich", "d": "Zerquetscht im nächsten Zug alle Männer. Betäuben verhindert es."})
++	if f.stun > 0:
++		out.append({"i": 4, "n": f.stun, "t": "Betäubt", "d": "Setzt den nächsten Zug aus."})
++	if f.blind > 0:
++		out.append({"i": 2, "n": f.blind, "t": "Geblendet", "d": "Treffer −20 %."})
++	if f.bleed_turns > 0:
++		out.append({"i": 5, "n": f.bleed_turns, "t": "Blutet", "d": "%d Schaden zu Beginn seines Zuges." % roundi(f.bleed_dmg)})
++	if f.mark > 0:
++		out.append({"i": 6, "n": f.mark, "t": "Markiert", "d": "Nimmt 25 % mehr Schaden und ist leichter zu treffen."})
++	if f.guard > 0:
++		out.append({"i": 7, "n": f.guard, "t": "Schildwall", "d": "Schutz +40 %."})
++	if f.buff > 0:
++		out.append({"i": 8, "n": f.buff, "t": "Kriegslied" if f.side == 0 else "Kriegshorn", "d": "Schaden +25 %."})
++	if f.taunt > 0:
++		out.append({"i": 9, "n": f.taunt, "t": "Herausforderung", "d": "Die Gegner zielen fast nur auf ihn."})
++	if f.panic > 0:
++		out.append({"i": 10, "n": 0, "t": "Gelähmt", "d": "Setzt vor Schreck den nächsten Zug aus."})
++	if f.side == 0 and f.role == Roles.Id.MUSKET and not f.loaded:
++		out.append({"i": 11, "n": 0, "t": "Muskete leer", "d": "Erst nachladen, dann schießen."})
++	return out
++
+ 
++## Ein Zustandssymbol (9x9 aus assets/status_icons.png), n Runden als kleine Zahl in der Ecke.
++func _status_icon(p: Vector2, idx: int, n: int = 0) -> void:
++	var q := Vector2(roundf(p.x), roundf(p.y))
++	StatusIcons.draw(self, String(StatusIcons.ORDER[idx]), q)
++	if n > 0:
++		for o in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
++			draw_string(_ui, q + Vector2(6, 10) + o, "%d" % n, HORIZONTAL_ALIGNMENT_LEFT, -1, 6, INK)
++		draw_string(_ui, q + Vector2(6, 10), "%d" % n, HORIZONTAL_ALIGNMENT_LEFT, -1, 6, PAPER)
+ 
+-func _draw_fighter(c: Combat, f: Combat.Fighter, mouse: Vector2, valid: bool) -> void:
++
++## Kopf der Figur (14x14) für Zugleiste und Karten.
++func _draw_head(f: Combat.Fighter, p: Vector2, mod: Color = Color.WHITE) -> void:
++	if _combat_tex == null:
++		_combat_tex = load("res://assets/combat.png") as Texture2D
++	if _is_big(f):
++		draw_texture_rect_region(_big_texture(f.kind), Rect2(p, Vector2(14, 14)), Rect2(20.0, 14.0, 48.0, 48.0), mod)
++	elif _combat_tex != null:
++		draw_texture_rect_region(_combat_tex, Rect2(p, Vector2(14, 14)), Rect2(15.0, float(_fig_row(f)) * FIG_H + 9.0, 14.0, 14.0), mod)
++
++
++## Kopf einer Gegnerart (für die Aufstellung, wo es noch keine Kämpfer gibt): size 28 = doppelt, 14 = einfach.
++func _draw_head_key(key: String, p: Vector2, size: float) -> void:
++	if _combat_tex == null:
++		_combat_tex = load("res://assets/combat.png") as Texture2D
++	if Foes.is_big(key):
++		draw_texture_rect_region(_big_texture(key), Rect2(p, Vector2(size, size)), Rect2(20.0, 14.0, 48.0, 48.0))
++	elif _combat_tex != null:
++		draw_texture_rect_region(_combat_tex, Rect2(p, Vector2(size, size)), Rect2(15.0, float(Foes.ROW.get(key, 5)) * FIG_H + 9.0, 14.0, 14.0))
++
++
++## Namensschild unter den Füßen: Band mit Namen, Kraftbalken mit Zahl, Verzweiflung, Zustandssymbole.
++func _draw_plate(c: Combat, f: Combat.Fighter, cx: float, active: bool, w: float = 52.0, mouse: Vector2 = Vector2(-1, -1)) -> void:
++	var hero := f.side == 0
++	var door := f.door and hero
++	var x := roundf(cx - w * 0.5)
++	var y := FIGHT_FEET + 5.0
++	var nm := f.name if hero else String(Foes.info(f.kind).get("short", f.name))
++	var warn := not hero and f.charge  # Boss spannt sich: das Schild pulsiert, daneben ein großes Symbol
++	var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) / 140.0)
++	var fill := Color("17131c") if hero else Color("1e1315")
++	var edge := Color("7d6330") if hero else Color("8a3a35")
++	if active:
++		fill = Color("2e2410")
++		edge = GOLD
++	elif door:
++		fill = Color("2b1016")
++		edge = Color("d2564b")
++	if warn:
++		fill = Color("2b1016").lerp(Color("6a1a1a"), pulse)
++		edge = Color("ff6a5a")
++		nm = nm + ": spannt sich!"
++		StatusIcons.draw_big(self, "quetschen", Vector2(x - 22.0, y - 6.0), Color(1, 1, 1, 0.6 + 0.4 * pulse))
++	# Band mit kurzen Zungen links und rechts
++	draw_rect(Rect2(x - 2, y + 2, w + 4, 6), INK)
++	draw_rect(Rect2(x - 1, y + 3, w + 2, 4), fill)
++	draw_rect(Rect2(x, y, w, 10), INK)
++	draw_rect(Rect2(x + 1, y + 1, w - 2, 8), fill)
++	draw_rect(Rect2(x + 1, y + 1, w - 2, 1), Color(edge, 0.75))
++	draw_rect(Rect2(x + 1, y + 8, w - 2, 1), Color(edge, 0.25))
++	var sz := _fit_size(nm, w - 6.0, [8, 7], _lore)
++	_t1(Vector2(x, y + 8), nm, GOLD if active else PAPER, sz, HORIZONTAL_ALIGNMENT_CENTER, w, _lore)
++	# Kraft
++	var by := y + 11.0
++	var hpf := clampf(f.hp / f.hp_max, 0.0, 1.0)
++	UiSkin.bar(self, x + 1, by, w - 2, 7, hpf, _kraft_col(f.hp) if hero else Color("c8453d"), false)
++	var hps := "%d" % maxi(roundi(f.hp), 0)
++	draw_string(_ui, Vector2(x + 1, by + 7), hps, HORIZONTAL_ALIGNMENT_CENTER, w - 2, 6, Color(INK, 0.9))
++	draw_string(_ui, Vector2(x + 1, by + 6), hps, HORIZONTAL_ALIGNMENT_CENTER, w - 2, 6, PAPER)
++	var iy := by + 10.0
++	if hero and f.man != null:
++		UiSkin.mini_bar(self, x + 1, by + 10.0, w - 2, clampf(f.man.stress, 0.0, 100.0) / 100.0, VIOLET if f.man.stress < 70.0 else RED)
++		iy = by + 15.0
++	# Zustandssymbole
++	var sts := _status_list(f)
++	var n := mini(sts.size(), 5)
++	var sx := cx - float(n) * 5.0 + 0.5
++	for k in n:
++		var ip := Vector2(sx + float(k) * 10.0, iy)
++		_status_icon(ip, int(sts[k]["i"]), int(sts[k]["n"]))
++		if Rect2(ip.x - 1.0, ip.y - 1.0, 11.0, 11.0).has_point(mouse):
++			_hover_status = k
++	if sts.size() > 5:
++		_t1(Vector2(sx + 50.0, iy + 7.0), "+%d" % (sts.size() - 5), DIM, 6)
++	if not hero and f.guarded:
++		_t1(Vector2(x - 20.0, y - 3.0), "geschützt" if c._tentacles() > 0 else "offen!", DIM if c._tentacles() > 0 else GREEN, 7, HORIZONTAL_ALIGNMENT_CENTER, w + 40.0)
++
++
++func _draw_fighter(c: Combat, f: Combat.Fighter, mouse: Vector2, valid: bool, dim: bool = false) -> void:
+ 	if _combat_tex == null:
+ 		_combat_tex = load("res://assets/combat.png") as Texture2D
+ 	var cx := _fig_x(f)
+@@ -2223,58 +2380,69 @@
+ 		match String(a["kind"]):
+ 			"attack":
+ 				col = 2
+-				dx = dir * 9.0 * float(a.get("mv", 1.0)) * sin(PI * clampf(1.0 - tt / 0.42, 0.0, 1.0))
++				dx = dir * 9.0 * FIG_SC * float(a.get("mv", 1.0)) * sin(PI * clampf(1.0 - tt / 0.42, 0.0, 1.0))
+ 			"dodge":
+-				dx = -dir * 5.0 * sin(PI * clampf(1.0 - tt / 0.3, 0.0, 1.0))
++				dx = -dir * 5.0 * FIG_SC * sin(PI * clampf(1.0 - tt / 0.3, 0.0, 1.0))
+ 			_:
+ 				col = 3
+-				dx = -dir * 2.0 + (1.0 if int(tt * 40.0) % 2 == 0 else -1.0)
++				dx = -dir * 2.0 * FIG_SC + (1.0 if int(tt * 40.0) % 2 == 0 else -1.0)
+ 				tint = Color(1.7, 0.6, 0.55)
++	if dim and not valid:
++		tint = Color(tint.r * 0.5, tint.g * 0.5, tint.b * 0.55, tint.a)
+ 	var active := c.actor == f and c.state != "done"
+ 	var big := _is_big(f)
+ 	if big and f.charge and a.is_empty():
+ 		col = 4
++	var bh := 0.0
++	var rect := _fighter_rect(f)
+ 	# Schatten und Markierung unter den Füßen
+ 	if not big:
+-		draw_rect(Rect2(cx - 14, FIGHT_FEET - 1, 28, 3), Color(0, 0, 0, 0.4))
+-		draw_rect(Rect2(cx - 10, FIGHT_FEET + 2, 20, 1), Color(0, 0, 0, 0.25))
++		draw_rect(Rect2(cx - 28, FIGHT_FEET - 2, 56, 4), Color(0, 0, 0, 0.4))
++		draw_rect(Rect2(cx - 20, FIGHT_FEET + 2, 40, 2), Color(0, 0, 0, 0.25))
+ 	if active:
+ 		# Lichtkegel auf dem Deck und die goldene Markierung
+ 		for k in 4:
+-			draw_rect(Rect2(cx - 34 + float(k) * 6.0, FIGHT_FEET - 4 + float(k), 68 - float(k) * 12.0, 8 - k * 2), Color(1.0, 0.85, 0.45, 0.05 + 0.02 * float(k)))
+-		draw_rect(Rect2(cx - 17, FIGHT_FEET + 3, 34, 2), GOLD)
+-		draw_rect(Rect2(cx - 13, FIGHT_FEET + 5, 26, 1), Color(GOLD, 0.5))
++			draw_rect(Rect2(cx - 40 + float(k) * 8.0, FIGHT_FEET - 5 + float(k), 80 - float(k) * 16.0, 9 - k * 2), Color(1.0, 0.85, 0.45, 0.05 + 0.02 * float(k)))
++		draw_rect(Rect2(cx - 22, FIGHT_FEET + 2, 44, 2), GOLD)
+ 	if big:
+-		var bw := float(Foes.BIG[f.kind]["w"])
+-		var bh := float(Foes.BIG[f.kind]["h"])
+-		draw_texture_rect_region(_big_texture(f.kind), Rect2(roundf(cx - bw * 0.5 + dx), FIGHT_FEET - 94.0, bw, bh), Rect2(float(col) * bw, 0.0, bw, bh), tint)
++		var bw := float(Foes.BIG[f.kind]["w"]) * BIG_SC
++		bh = float(Foes.BIG[f.kind]["h"]) * BIG_SC
++		draw_texture_rect_region(_big_texture(f.kind), Rect2(roundf(cx - bw * 0.5 + dx), FIGHT_FEET - 9.0 - bh, bw, bh), Rect2(float(col) * float(Foes.BIG[f.kind]["w"]), 0.0, float(Foes.BIG[f.kind]["w"]), float(Foes.BIG[f.kind]["h"])), tint)
+ 	elif _combat_tex != null:
+ 		var row := _fig_row(f)
+-		draw_texture_rect_region(_combat_tex, Rect2(roundf(cx - FIG_W * 0.5 + dx), FIGHT_FEET - 52.0, FIG_W, FIG_H), Rect2(float(col) * FIG_W, float(row) * FIG_H, FIG_W, FIG_H), tint)
+-	var rect := _fighter_rect(f)
+-	if active and f.side == 0:
+-		var ay := FIGHT_FEET - 60.0
+-		draw_colored_polygon(PackedVector2Array([Vector2(cx - 4, ay), Vector2(cx + 4, ay), Vector2(cx, ay + 5)]), GOLD)
++		draw_texture_rect_region(_combat_tex, Rect2(roundf(cx - FIG_W * FIG_SC * 0.5 + dx), FIGHT_FEET - 52.0 * FIG_SC, FIG_W * FIG_SC, FIG_H * FIG_SC), Rect2(float(col) * FIG_W, float(row) * FIG_H, FIG_W, FIG_H), tint)
++	var head_y := FIGHT_FEET - 52.0 * FIG_SC if not big else FIGHT_FEET - 9.0 - bh
++	if active and f.side == 0 and _fx.banner.is_empty():
++		draw_colored_polygon(PackedVector2Array([Vector2(cx - 4, head_y - 8), Vector2(cx + 4, head_y - 8), Vector2(cx, head_y - 3)]), GOLD)
+ 	if valid:
+-		var pulse := 0.6 + 0.4 * sin(float(Time.get_ticks_msec()) / 160.0)
+-		draw_rect(rect.grow(2), Color(PAPER, pulse), false, 1.0)
+-		var vy := FIGHT_FEET - (92.0 if big else 62.0)
+-		draw_colored_polygon(PackedVector2Array([Vector2(cx - 4, vy), Vector2(cx + 4, vy), Vector2(cx, vy + 5)]), RED if f.side == 1 else GREEN)
+-		_register(rect.grow(4), "ft%d_%d" % [f.side, f.rank])
+-	# Name, Kraft, Verzweiflung, Zustände
+-	var nm := f.name if f.side == 0 else String(Foes.info(f.kind).get("short", f.name))
+-	_t(Vector2(cx - 26, FIGHT_FEET + 14), nm, PAPER, 8, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
+-	_bar(cx - 19, FIGHT_FEET + 18, 38, 4, f.hp / f.hp_max, _kraft_col(f.hp) if f.side == 0 else RED)
+-	if f.side == 0 and f.man != null:
+-		UiSkin.mini_bar(self, cx - 19, FIGHT_FEET + 24, 38, clampf(f.man.stress, 0.0, 100.0) / 100.0, VIOLET if f.man.stress < 70.0 else RED)
+-	var info := "%d" % maxi(roundi(f.hp), 0)
+-	var stext := _status_text(f)
+-	if stext != "":
+-		info += "  " + stext
+-	_t(Vector2(cx - 26, FIGHT_FEET + 36), info, PAPER if stext == "" else GOLD, 7, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
+-	if f.side == 1 and f.guarded:
+-		_t(Vector2(cx - 38, FIGHT_FEET + 46), "geschützt" if c._tentacles() > 0 else "offen!", DIM if c._tentacles() > 0 else GREEN, 7, HORIZONTAL_ALIGNMENT_CENTER, 76.0)
+-	_tip(rect, Tips.fighter(c, f, _fight_skill if valid else ""))
++		var pulse := 0.65 + 0.35 * sin(float(Time.get_ticks_msec()) / 160.0)
++		var rc := RED if f.side == 1 else GREEN
++		var rx := 60.0 if big else 31.0
++		var pts := PackedVector2Array()
++		for k in 25:
++			var an := TAU * float(k) / 24.0
++			pts.append(Vector2(cx + cos(an) * rx, FIGHT_FEET + 1.0 + sin(an) * rx * 0.2))
++		draw_polyline(pts, Color(rc, pulse), 1.0)
++		# Taste und Trefferchance über dem Kopf
++		var tag := ""
++		if _fight_skill != "" and c.actor != null and String(Roles.skill(_fight_skill)["tgt"]) == "foe":
++			tag = "%d %%" % roundi(c.hit_chance(c.actor, f, c.eff_skill(c.actor, _fight_skill)))
++		var kw := 11.0
++		var tw := (_ui.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x + 6.0) if tag != "" else 0.0
++		var bx := roundf(cx - (kw + tw) * 0.5)
++		var ty := maxf(head_y - 20.0, 33.0)
++		draw_rect(Rect2(bx - 1, ty - 1, kw + tw + 2, 13), INK)
++		draw_rect(Rect2(bx, ty, kw, 11), rc.darkened(0.45))
++		draw_rect(Rect2(bx, ty, kw, 1), rc.lightened(0.2))
++		_t1(Vector2(bx, ty + 9), "QWER".substr(clampi(f.rank, 0, 3), 1), PAPER, 8, HORIZONTAL_ALIGNMENT_CENTER, kw)
++		if tag != "":
++			draw_rect(Rect2(bx + kw, ty, tw, 11), Color("15121a"))
++			_t1(Vector2(bx + kw, ty + 9), tag, PAPER, 7, HORIZONTAL_ALIGNMENT_CENTER, tw)
++		draw_colored_polygon(PackedVector2Array([Vector2(cx - 3, ty + 13), Vector2(cx + 3, ty + 13), Vector2(cx, ty + 17)]), rc)
++		_register(rect, "ft%d_%d" % [f.side, f.rank])
++	_draw_plate(c, f, cx, active, 104.0 if big else 52.0, mouse)
++	if rect.has_point(mouse):
++		_hover_fighter = f
+ 
+ 
+ func _draw_fight_overlay() -> void:
+@@ -2288,9 +2456,9 @@
+ 		if _is_big(f):
+ 			var bw := float(Foes.BIG[f.kind]["w"])
+ 			var bh := float(Foes.BIG[f.kind]["h"])
+-			draw_texture_rect_region(_big_texture(f.kind), Rect2(roundf(_fig_x(f) - bw * 0.5), FIGHT_FEET - 94.0 + (1.0 - al) * 14.0, bw, bh), Rect2(float(gcol) * bw, 0.0, bw, bh), gtint)
++			draw_texture_rect_region(_big_texture(f.kind), Rect2(roundf(_fig_x(f) - bw * BIG_SC * 0.5), FIGHT_FEET - 9.0 - bh * BIG_SC + (1.0 - al) * 14.0, bw * BIG_SC, bh * BIG_SC), Rect2(float(gcol) * bw, 0.0, bw, bh), gtint)
+ 		elif _combat_tex != null:
+-			draw_texture_rect_region(_combat_tex, Rect2(roundf(_fig_x(f) - FIG_W * 0.5), FIGHT_FEET - 52.0 + (1.0 - al) * 6.0, FIG_W, FIG_H), Rect2(float(gcol) * FIG_W, float(_fig_row(f)) * FIG_H, FIG_W, FIG_H), gtint)
++			draw_texture_rect_region(_combat_tex, Rect2(roundf(_fig_x(f) - FIG_W * FIG_SC * 0.5), FIGHT_FEET - 52.0 * FIG_SC + (1.0 - al) * 6.0, FIG_W * FIG_SC, FIG_H * FIG_SC), Rect2(float(gcol) * FIG_W, float(_fig_row(f)) * FIG_H, FIG_W, FIG_H), gtint)
+ 	_fx.draw(self)
+ 	for fl in _floats:
+ 		if float(fl.get("wait", 0.0)) > 0.0:
+@@ -2301,46 +2469,444 @@
+ 		_t(Vector2(float(fl["x"]) - 30.0, float(fl["y"])), String(fl["text"]), Color(col, al2), size, HORIZONTAL_ALIGNMENT_CENTER, 60.0)
+ 
+ 
+-## Aufblitzen, Banner mit dem Namen der Fertigkeit und die große Ansage bei Heldenmut und Zusammenbruch.
++## Ränder, Blitz und die große Ansage. R5: Die Ansage steht im oberen Drittel der Bühne (y 32..72), über den Köpfen.
+ func _draw_fight_texts() -> void:
+-	# Vignette: die Ränder der Bühne sind dunkel, bei großen Ansagen noch mehr
++	var sh := UI_BAR_Y
+ 	var vs := 0.34 + (0.3 if not _fx.big.is_empty() else 0.0)
+ 	for i in 8:
+ 		var k := vs * (1.0 - float(i) / 8.0)
+-		draw_rect(Rect2(float(i) * 4.0, 0, 4, 166), Color(0, 0, 0, k * 0.8))
+-		draw_rect(Rect2(Waves.VIEW_W - float(i + 1) * 4.0, 0, 4, 166), Color(0, 0, 0, k * 0.8))
++		draw_rect(Rect2(float(i) * 4.0, 0, 4, sh), Color(0, 0, 0, k * 0.8))
++		draw_rect(Rect2(Waves.VIEW_W - float(i + 1) * 4.0, 0, 4, sh), Color(0, 0, 0, k * 0.8))
+ 		if i < 5:
+ 			draw_rect(Rect2(0, float(i) * 2.0, Waves.VIEW_W, 2), Color(0, 0, 0, k * 0.7))
+ 		if i < 4:
+-			draw_rect(Rect2(0, 166.0 - float(i + 1) * 3.0, Waves.VIEW_W, 3), Color(0, 0, 0, k * 0.8))
++			draw_rect(Rect2(0, sh - float(i + 1) * 3.0, Waves.VIEW_W, 3), Color(0, 0, 0, k * 0.8))
+ 	var fl := _fx.flash_color()
+ 	if fl.a > 0.0:
+-		draw_rect(Rect2(0, 0, Waves.VIEW_W, 166), fl)
+-	if not _fx.banner.is_empty():
+-		var b := _fx.banner
+-		var al := clampf(float(b["t"]) / 0.3, 0.0, 1.0)
+-		var r := Rect2(236, 4, 172, 18)
+-		draw_rect(r, Color(INK, 0.88 * al))
+-		draw_rect(r, Color(GOLD if int(b["side"]) == 0 else RED, al), false, 1.0)
+-		SkillIcons.draw(self, String(b.get("icon", "")), Vector2(r.position.x + 1, r.position.y + 1), Color(1, 1, 1, al))
+-		_t(Vector2(r.position.x + 18, r.position.y + 13), "%s: %s" % [b["who"], b["name"]], Color(PAPER, al), 9, HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 20.0)
++		draw_rect(Rect2(0, 0, Waves.VIEW_W, sh), fl)
+ 	if not _fx.big.is_empty():
+ 		var g := _fx.big
+ 		var el := 1.0 - float(g["t"]) / float(g["dur"])
+ 		var al2 := clampf(minf(el * 8.0, (1.0 - el) * 5.0), 0.0, 1.0)
+ 		var col: Color = g["col"]
+-		draw_rect(Rect2(0, 58, Waves.VIEW_W, 52), Color(0, 0, 0, 0.55 * al2))
+-		draw_rect(Rect2(0, 58, Waves.VIEW_W, 1), Color(col, al2))
+-		draw_rect(Rect2(0, 109, Waves.VIEW_W, 1), Color(col, al2))
+-		_t(Vector2(0, 86), String(g["text"]), Color(col, al2), 22, HORIZONTAL_ALIGNMENT_CENTER, Waves.VIEW_W)
+-		_t(Vector2(0, 102), String(g["sub"]), Color(PAPER, al2), 10, HORIZONTAL_ALIGNMENT_CENTER, Waves.VIEW_W)
++		var by := 32.0
++		draw_rect(Rect2(0, by, Waves.VIEW_W, 40), Color(0, 0, 0, 0.62 * al2))
++		draw_rect(Rect2(0, by, Waves.VIEW_W, 1), Color(col, al2))
++		draw_rect(Rect2(0, by + 39, Waves.VIEW_W, 1), Color(col, al2))
++		_t(Vector2(0, by + 25), String(g["text"]), Color(col, al2), 22, HORIZONTAL_ALIGNMENT_CENTER, Waves.VIEW_W)
++		_t(Vector2(0, by + 36), String(g["sub"]), Color(PAPER, al2), 9, HORIZONTAL_ALIGNMENT_CENTER, Waves.VIEW_W)
++
++
++## Fokusschild der handelnden Figur: Name und Fertigkeit in einem Schild über dem Kopf (ersetzt das Banner oben rechts).
++func _draw_focus_plaque() -> void:
++	var f := _ev_actor
++	if debug_flags.has("banner") and voy.combat != null and voy.combat.actor != null:  # nur Screenshots: Schild stehen lassen
++		f = voy.combat.actor
++		_fx.banner = {"name": _skill_label(String(f.skills[0])) if f.side == 0 else "Hieb", "who": f.name, "side": f.side, "t": 1.0, "icon": Roles.icon_of(String(f.skills[0])) if f.side == 0 else "sword"}
++	elif debug_flags.has("bannerboss") and voy.combat != null:
++		for bf in voy.combat.foes:
++			if _is_big(bf):
++				f = bf
++		_fx.banner = {"name": "Schnabelhieb", "who": "Kraken", "side": 1, "t": 1.0, "icon": "beak"}
++	if _fx.banner.is_empty() or f == null or not _fx.big.is_empty():
++		return
++	var b := _fx.banner
++	var age := 1.25 - float(b["t"])
++	var inn := clampf(age / 0.14, 0.0, 1.0)
++	inn = 1.0 - pow(1.0 - inn, 3.0)
++	var outv := clampf(float(b["t"]) / 0.25, 0.0, 1.0)
++	var al := inn * outv
++	var hero := int(b["side"]) == 0
++	var top0 := FIGHT_FEET - 52.0 * FIG_SC - 32.0 if not _is_big(f) else 36.0
++	var sp := _fx.stage_to_screen(Vector2(_fig_x(f), top0))  # das Schild zoomt nicht mit, folgt aber der Figur
++	var cx := sp.x
++	var sname := String(b["name"])
++	var who := String(b["who"])
++	var tw := maxf(_lore.get_string_size(sname, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x, _ui.get_string_size(who, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x)
++	var w := roundf(tw + 32.0)
++	var h := 24.0
++	var top := sp.y
++	var x := clampf(roundf(cx - w * 0.5), 4.0, 476.0 - w)
++	var y := roundf(top - (1.0 - inn) * 8.0)
++	var side_ptr := _is_big(f)  # Riesen: das Schild steht links neben dem Kopf, die Spitze zeigt auf ihn
++	if side_ptr:
++		x = clampf(roundf(cx - 72.0 - w + (1.0 - inn) * 8.0), 4.0, 476.0 - w)
++		y = roundf(top + 8.0)
++	var acc := GOLD if hero else Color("d2564b")
++	var fill := Color("1a2030") if hero else Color("2a1416")
++	draw_rect(Rect2(x - 1, y - 1, w + 2, h + 2), Color(INK, al))
++	draw_rect(Rect2(x, y, w, h), Color(fill, 0.96 * al))
++	draw_rect(Rect2(x, y, w, 2), Color(acc, al))
++	draw_rect(Rect2(x, y + h - 1, w, 1), Color(acc, 0.35 * al))
++	draw_rect(Rect2(x + 3, y + 4, 18, 18), Color(INK, al))
++	SkillIcons.draw(self, String(b.get("icon", "")), Vector2(x + 4, y + 5), Color(1, 1, 1, al))
++	_t1(Vector2(x + 25, y + 11), who, Color(acc, al), 7)
++	_t1(Vector2(x + 25, y + 21), sname, Color(PAPER, al), 10, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _lore)
++	if side_ptr:
++		draw_colored_polygon(PackedVector2Array([Vector2(x + w + 1, y + 7), Vector2(x + w + 1, y + 17), Vector2(x + w + 7, y + 12)]), Color(acc, al))
++	else:
++		draw_colored_polygon(PackedVector2Array([Vector2(cx - 4, y + h + 1), Vector2(cx + 4, y + h + 1), Vector2(cx, y + h + 6)]), Color(acc, al))
++
++
++## Kopfzeile: Kampfname, Runde, Zugleiste mit Köpfen, Chronik-Knopf.
++func _draw_fight_header(c: Combat, mouse: Vector2) -> void:
++	var title := String(Foes.FORMATIONS[c.formation]["name"])
++	_t1(Vector2(8, 11), title, Color(GOLD, 0.95), _fit_size(title, 112.0, [8, 7]), HORIZONTAL_ALIGNMENT_LEFT, 114.0)
++	_t1(Vector2(8, 21), "Runde %d" % c.round_no, DIM, 7)
++	var up := c.upcoming(10)
++	var x := 124.0
++	var pulse := 0.6 + 0.4 * sin(float(Time.get_ticks_msec()) / 220.0)
++	for i in up.size():
++		var u := up[i]
++		var act := i == 0
++		var w := 22.0 if act else 16.0
++		var h := 26.0 if act else 22.0
++		var y := 3.0 if act else 5.0
++		var hero := u.side == 0
++		var r := Rect2(x, y, w, h)
++		var body := Color("26344d") if hero else Color("4b2626")
++		var acc := Color("6f9fe0") if hero else Color("d2564b")
++		if act:
++			draw_rect(r.grow(1), Color(GOLD, pulse))
++		draw_rect(r, INK)
++		draw_rect(r.grow(-1), body)
++		if hero:
++			draw_rect(Rect2(x + 1, y + 1, w - 2, 2), acc)
++		else:
++			draw_rect(Rect2(x + 1, y + h - 3, w - 2, 2), acc)
++		_draw_head(u, Vector2(roundf(x + (w - 14.0) * 0.5), y + 3.0 + (1.0 if not hero else 0.0)))
++		var hpf := clampf(u.hp / u.hp_max, 0.0, 1.0)
++		draw_rect(Rect2(x + 2, y + h - (7.0 if hero else 6.0), w - 4, 2), Color(0, 0, 0, 0.7))
++		draw_rect(Rect2(x + 2, y + h - (7.0 if hero else 6.0), roundf((w - 4) * hpf), 2), _kraft_col(u.hp) if hero else Color("c8453d"))
++		if r.has_point(mouse):
++			_hover_fighter = u
++		x += w + 2.0
++	if up.size() < 10:
++		_t1(Vector2(x + 2, 21), "Runde %d" % (c.round_no + 1), Color(DIM, 0.8), 6)
++	var cb := Rect2(414, 4, 60, 12)
++	_small_button(cb, "Chronik (Tab)", cb.has_point(mouse), true, 7)
++	_register(cb, "fchron")
++
++
++## Eine Fertigkeitskarte (77x52): Symbol, Taste, Name (passt sich der Breite an), zwei Zeilen Werte.
++func _draw_fight_card(c: Combat, i: int, sid: String, cr: Rect2, mouse: Vector2) -> void:
++	var live := c.state == "hero" and c.actor != null
++	if not live:
++		_card(cr, UiSkin.State.DISABLED, 0.4)
++		return
++	if sid == "":
++		_card(cr, UiSkin.State.DISABLED, 0.25)
++		return
++	var ok := true
++	var title := ""
++	var info: Array = []
++	var icon := ""
++	var danger := false
++	if sid == "move":
++		title = "Platztausch"
++		info = ["tauscht mit einem", "anderen Mann"]
++		ok = c.heroes.size() > 1
++		icon = "swap"
++	elif sid == "flee":
++		title = "Rückzug"
++		info = ["Kampf endet ohne", "Sieg"]
++		icon = "flee"
++		danger = true
++	else:
++		var sk := Roles.skill(sid)
++		title = String(sk["name"])
++		ok = c.can_use(c.actor, sid)
++		info = Tips.skill_short(c, c.actor, sid)
++		icon = Roles.icon_of(sid)
++	var armed := _fight_skill == sid or (sid == "move" and _fight_move)
++	var hover := ok and cr.has_point(mouse)
++	var st := UiSkin.State.SELECTED if armed else (UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if ok else UiSkin.State.DISABLED))
++	_card(cr, st, 1.0, Color("a83a35") if (danger and st == UiSkin.State.NORMAL) else Color(0, 0, 0, 0))
++	SkillIcons.draw(self, icon, cr.position + Vector2(3, 3), Color.WHITE if ok else Color(1, 1, 1, 0.4))
++	_t1(cr.position + Vector2(21, 11), "%d" % (i + 1), Color(GOLD, 0.8) if ok else Color(DIM, 0.8), 7)
++	var tsz := _fit_size(title, 46.0, [8, 7, 6])
++	_t1(cr.position + Vector2(28, 11), title, GOLD if ok else DIM, tsz, HORIZONTAL_ALIGNMENT_LEFT, 47.0)
++	for k in info.size():
++		var line := String(info[k]).strip_edges().trim_suffix(",")
++		_t1(cr.position + Vector2(5, 29 + k * 9), line, PAPER if ok else Color(DIM, 0.8), 7, HORIZONTAL_ALIGNMENT_LEFT, 68.0)
++	if ok:
++		_register(cr, "fs%d" % i)
++
++
++## Hilfszeilen zu einer Karte (statt eines schwebenden Tooltips): höchstens zwei Zeilen unter der Bühne.
++func _card_help(c: Combat, sid: String) -> Array:
++	if sid == "move":
++		return [["Platztausch: tauscht mit einem anderen Mann die Reihe und kostet den Zug.", PAPER], ["Vorn wird man getroffen und trifft nah; hinten schießen und singen die anderen.", DIM]]
++	if sid == "flee":
++		return [["Rückzug: der Kampf endet sofort, ohne Sieg und ohne Beute.", Color(0.9, 0.45, 0.4)], ["Wer noch im Griff eines Fangarms hängt, geht dabei über Bord.", DIM]]
++	var tip: Dictionary = Tips.skill(c, c.actor, sid)
++	var lines: Array = tip["l"]
++	var rest: Array[String] = []
++	var col2 := DIM
++	for k in range(1, lines.size()):
++		var t := String(lines[k][0])
++		if t.contains(": Treffer "):
++			continue  # die Trefferchancen je Ziel stehen bei der Zielwahl über den Gegnern
++		rest.append(t)
++		if t.begins_with("Einsetzbar"):
++			col2 = lines[k][1]
++	return [[String(tip["t"]) + ": " + String(lines[0][0]), PAPER], [" ".join(PackedStringArray(rest)), col2]]
++
++
++## Untere Leiste: Ansage, zwei Meldungszeilen, sechs Karten.
++func _draw_fight_bar(c: Combat, mouse: Vector2) -> void:
++	var by := UI_BAR_Y
++	draw_rect(Rect2(0, by, Waves.VIEW_W, Waves.VIEW_H - by), Color("0b0c12"))
++	draw_rect(Rect2(0, by, Waves.VIEW_W, 1), INK)
++	draw_rect(Rect2(0, by + 1, Waves.VIEW_W, 1), UiSkin.BRONZE)
++	draw_rect(Rect2(0, by + 2, Waves.VIEW_W, 1), UiSkin.BRONZE_LO)
++	# Ansage: was jetzt zu tun ist
++	var prompt := ""
++	var pcol := GOLD
++	if c.state == "hero" and c.actor != null:
++		if _fight_move:
++			prompt = "Platztausch: mit wem? Q W E R oder Klick, Esc zurück."
++		elif _fight_skill != "":
++			prompt = "%s: Ziel wählen (Q W E R oder Klick), Esc zurück." % String(Roles.skill(_fight_skill)["name"])
++		else:
++			prompt = "%s ist dran: Fertigkeit wählen (1–6)." % c.actor.name
++	elif c.state == "foe" and c.actor != null:
++		prompt = "%s ist am Zug …" % String(Foes.info(c.actor.kind).get("name", c.actor.name))
++		pcol = Color("e0705f")
++	elif c.state == "done":
++		match c.result:
++			"win":
++				prompt = "Sieg: %d Gegner gefallen." % c.killed
++			"lose":
++				prompt = "Niederlage: niemand steht mehr."
++				pcol = Color("e0705f")
++			_:
++				prompt = "Rückzug: ihr zieht euch zurück."
++				pcol = DIM
++	_t(Vector2(8, by + 15), prompt, pcol, 9, HORIZONTAL_ALIGNMENT_LEFT, 350.0)
++	if c.state == "hero" and c.actor != null:
++		var wr := Rect2(366, by + 5, 108, 13)
++		_small_button(wr, "Abwarten (Leertaste)", wr.has_point(mouse), true, 7)
++		_register(wr, "fwait")
++	# Bildunterschrift: die letzten beiden Meldungen
++	var help: Array = []
++	if c.state == "hero" and c.actor != null:
++		var opts0: Array = _fight_options(c)
++		for i0 in 6:
++			if Rect2(4.0 + float(i0) * 79.0, by + 43.0, 77.0, 46.0).has_point(mouse) and String(opts0[i0]) != "":
++				help = _card_help(c, String(opts0[i0]))
++	var jl := c.journal
++	var n := jl.size()
++	for k in 2:
++		if not help.is_empty():
++			_t1(Vector2(8, by + 29.0 + float(k) * 10.0), String(help[k][0]), help[k][1], 8, HORIZONTAL_ALIGNMENT_LEFT, 464.0)
++			continue
++		var idx := n - 2 + k
++		if idx < 0:
++			continue
++		var e: Dictionary = jl[idx]
++		var col := PAPER
++		if int(e["kind"]) == 1:
++			col = GREEN
++		elif int(e["kind"]) == 2:
++			col = Color(0.9, 0.45, 0.4)
++		_t1(Vector2(8, by + 29.0 + float(k) * 10.0), String(e["text"]).strip_edges(), Color(col, 0.7 if k == 0 else 1.0), 8, HORIZONTAL_ALIGNMENT_LEFT, 464.0)
++	# Karten
++	if c.state == "foe" and c.actor != null:
++		_draw_foe_card(c, Rect2(4.0, by + 43.0, 472.0, 46.0))
++	var opts: Array = _fight_options(c) if c.state == "hero" else ["", "", "", "", "", ""]
++	for i in 6:
++		if c.state == "foe" or c.state == "done":
++			break
++		var cr := Rect2(4.0 + float(i) * 79.0, by + 43.0, 77.0, 46.0)
++		_draw_fight_card(c, i, opts[i] if i < opts.size() else "", cr, mouse)
++	# Tastenleiste ganz unten
++	var keys := "Tab Chronik"
++	if c.state == "hero" and c.actor != null:
++		if _fight_skill != "" or _fight_move:
++			keys = "Q W E R Ziel    Esc zurück    Tab Chronik"
++		else:
++			keys = "1–6 Fertigkeit    Leertaste warten    Tab Chronik"
++	_t1(Vector2(8, by + 102), keys, Color(DIM, 0.75), 6, HORIZONTAL_ALIGNMENT_LEFT, 464.0)
+ 
+ 
+-## Aufstellung und Kampf im Platzhalterbild: Kästen statt Figuren, alles klickbar und mit Tooltips.
++## Gegnerzug: eine breite Karte mit dem Gegner und dem, was er kann (statt sechs leerer Rahmen).
++func _draw_foe_card(c: Combat, r: Rect2) -> void:
++	var f := c.actor
++	_card(r, UiSkin.State.NORMAL, 0.8, Color("8a3a35"))
++	if _combat_tex == null:
++		_combat_tex = load("res://assets/combat.png") as Texture2D
++	var info := Foes.info(f.kind)
++	if _combat_tex != null and not _is_big(f):
++		draw_rect(Rect2(r.position.x + 7, r.position.y + 8, 30, 30), INK)
++		draw_texture_rect_region(_combat_tex, Rect2(r.position.x + 8, r.position.y + 9, 28, 28), Rect2(15.0, float(_fig_row(f)) * FIG_H + 9.0, 14.0, 14.0))
++	_t1(Vector2(r.position.x + 46, r.position.y + 20), String(info.get("name", f.name)), GOLD, 11, HORIZONTAL_ALIGNMENT_LEFT, 150.0, _lore)
++	var hint := Foes.role_hint(f.kind)
++	_t1(Vector2(r.position.x + 46, r.position.y + 33), "Kraft %d von %d" % [maxi(roundi(f.hp), 0), roundi(f.hp_max)] + ("  ·  " + hint if hint != "" else ""), DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 150.0)
++	var k := 0
++	for pair in f.skills:
++		var sid := String(pair[0])
++		var sk := Roles.skill(sid)
++		var bx := r.position.x + 210.0 + float(k) * 86.0
++		SkillIcons.draw(self, Roles.icon_of(sid), Vector2(bx, r.position.y + 15.0))
++		_t1(Vector2(bx + 20, r.position.y + 27), String(sk["name"]), PAPER, _fit_size(String(sk["name"]), 62.0, [8, 7, 6]), HORIZONTAL_ALIGNMENT_LEFT, 64.0)
++		k += 1
++	_t1(Vector2(r.position.x + 210, r.position.y + 11), "Kann:", DIM, 6)
++
++
++## Höchstens zwei einzeilige Hinweise unter der Kurzkarte: was die Symbole nicht sagen (Kippen, Griff, Spannen, Unerreichbar, Fähigkeiten).
++## Die Reihenfolge ist die Wichtigkeit. (Im Spiel gehört dieser Text nach scripts/tips.gd.)
++func _fighter_notes(c: Combat, f: Combat.Fighter) -> Array[String]:
++	var out: Array[String] = []
++	if f.held_by != null and not f.held_by.gone:
++		out.append("%s hält ihn: ohne Befreiung geht er über Bord." % f.held_by.name)
++	if f.holding != null and not f.holding.gone:
++		out.append("Hält %s: in %d Zügen über Bord. Fällt er, ist der Mann frei." % [f.holding.name, f.hold_left])
++	if f.charge:
++		out.append("Zerquetscht im nächsten Zug alle Männer. Betäuben verhindert es.")
++	if f.side == 1 and f.guarded:
++		out.append("Unerreichbar, solange ein Fangarm steht." if c._tentacles() > 0 else "Jetzt offen: schnell zuschlagen, bevor ein Fangarm nachwächst.")
++	if f.side == 0 and f.man != null and not f.snapped and f.man.stress >= 50.0:
++		out.append("Bei 100 Verzweiflung: Heldenmut oder Zusammenbruch.")
++	if f.side == 1:
++		var names: Array[String] = []
++		for pair in f.skills:
++			names.append(String(Roles.skill(String(pair[0]))["name"]))
++		out.append("Kann: " + ", ".join(PackedStringArray(names)))
++		if not f.immune.is_empty():
++			var imm: Array[String] = []
++			for im in f.immune:
++				imm.append(String({"bleed": "Blutung", "stun": "Betäubung"}.get(String(im), String(im))))
++			out.append("Immun gegen: " + ", ".join(PackedStringArray(imm)))
++		if f.coward:
++			out.append("Feige: flieht, wenn er allein ist.")
++	if out.size() > 2:
++		out.resize(2)
++	return out
++
++
++## Kurzkarte über einem Kämpfer (statt des breiten Tooltips): im Himmelsstreifen y 31.., auf der gegenüberliegenden Hälfte,
++## damit weder die Figur noch ihre Zielmarken verdeckt werden. Links Werte, rechts Zustände.
++func _draw_fighter_card(c: Combat, f: Combat.Fighter) -> void:
++	var hero := f.side == 0
++	var sts := _status_list(f)
++	var w := 236.0
++	var rows := 4 if hero else 3
++	var th := 12.0 + float(rows) * 10.0  # Höhe des oberen Teils (Werte und Zustände)
++	var notes: Array[String] = []
++	if _hover_status < 0:
++		notes = _fighter_notes(c, f)
++	var h := th + (4.0 + 9.0 * float(notes.size()) if not notes.is_empty() else 0.0)
++	var x := 6.0 if _fig_x(f) > 240.0 else 474.0 - w
++	var y := 31.0
++	UiSkin.panel(self, Rect2(x, y, w, h), UiSkin.BRONZE, 1, "tile_stone")
++	if not notes.is_empty():
++		draw_rect(Rect2(x + 7, y + th - 2.0, w - 14.0, 1), Color(UiSkin.BRONZE, 0.5))
++		for k in notes.size():
++			_t1(Vector2(x + 7, y + th + 8.0 + 9.0 * float(k)), notes[k], PAPER if k == 0 else DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, w - 14.0)
++	var title := f.name if hero else String(Foes.info(f.kind).get("name", f.name))
++	if hero:
++		title += "  (%s)" % Roles.role_name(f.role)
++	_t1(Vector2(x + 7, y + 13), title, GOLD, 9, HORIZONTAL_ALIGNMENT_LEFT, 120.0, _lore)
++	_t1(Vector2(x + 7, y + 23), "Kraft %d von %d  ·  Tempo %d" % [maxi(roundi(f.hp), 0), roundi(f.hp_max), f.speed], PAPER, 7, HORIZONTAL_ALIGNMENT_LEFT, 120.0)
++	_t1(Vector2(x + 7, y + 33), "Ausweichen %d %%  ·  Schutz %d %%" % [roundi(f.dodge), roundi(f.prot * 100.0)], DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 120.0)
++	if hero and f.man != null:
++		_t1(Vector2(x + 7, y + 43), "Verzweiflung %d  ·  %s" % [roundi(f.man.stress), f.man.fatigue_name()], DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 120.0)
++	draw_rect(Rect2(x + 131, y + 5, 1, th - 10.0), Color(UiSkin.BRONZE, 0.5))
++	if _hover_status >= 0 and _hover_status < sts.size():
++		var hs: Dictionary = sts[_hover_status]
++		_status_icon(Vector2(x + 137, y + 6), int(hs["i"]), 0)
++		var hn := int(hs["n"])
++		_t1(Vector2(x + 149, y + 13), String(hs["t"]) + ((" · %d Runden" % hn) if hn > 1 else ((" · 1 Runde") if hn == 1 else "")), GOLD, 8, HORIZONTAL_ALIGNMENT_LEFT, w - 154.0)
++		_wrap(String(hs["d"]), x + 137.0, y + 25.0, w - 144.0, 7, PAPER)
++		return
++	var ty := y + 12.0
++	var shown := mini(sts.size(), rows)
++	for k in shown:
++		var s: Dictionary = sts[k]
++		_status_icon(Vector2(x + 137, ty - 7.0), int(s["i"]), 0)
++		var nn := int(s["n"])
++		var txt := String(s["t"]) + ((" · %d Runden" % nn) if nn > 1 else ((" · 1 Runde") if nn == 1 else ""))
++		_t1(Vector2(x + 149, ty), txt, GOLD, 7, HORIZONTAL_ALIGNMENT_LEFT, w - 154.0)
++		ty += 10.0
++	if sts.size() > rows:
++		_t1(Vector2(x + 149, ty - 10.0), "+%d weitere" % (sts.size() - rows + 1), DIM, 7)
++	if sts.is_empty():
++		_t1(Vector2(x + 137, y + 22), "kein Zustand", Color(DIM, 0.7), 7)
++
++
++## Chronik: die letzten Meldungen als Platte am linken Rand der Bühne (Taste Tab oder Knopf, rein zum Lesen).
++func _draw_chronik(c: Combat) -> void:
++	var r := Rect2(4, 34, 196, 176)
++	draw_rect(r, Color(0.03, 0.03, 0.05, 0.9))
++	UiSkin.panel(self, r, UiSkin.BRONZE, 1, "", false)
++	_t1(Vector2(r.position.x + 8, r.position.y + 12), "Chronik", GOLD, 9, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _lore)
++	var jl := c.journal
++	var first := maxi(jl.size() - 15, 0)
++	for i in range(first, jl.size()):
++		var e: Dictionary = jl[i]
++		var col := PAPER
++		if int(e["kind"]) == 1:
++			col = GREEN
++		elif int(e["kind"]) == 2:
++			col = Color(0.9, 0.45, 0.4)
++		_t1(Vector2(r.position.x + 8, r.position.y + 24.0 + float(i - first) * 10.0), String(e["text"]), col, 7, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 14.0)
++
++
++## Beschriftete Zonen über dem Bild (nur für die Dokumentation: --hudflag=zones).
++func _draw_zones() -> void:
++	var zs := [
++		[Rect2(0, 0, 480, 215), Color(0.3, 0.9, 0.4), "Bühne y 0..215 (67 %)", Vector2(250, 44)],
++		[Rect2(0, 0, 480, 30), Color(0.9, 0.9, 0.3), "Kopfzeile 0..30", Vector2(330, 12)],
++		[Rect2(0, 32, 480, 40), Color(0.9, 0.5, 0.2), "Ansage 32..72", Vector2(390, 51)],
++		[Rect2(0, 68, 480, 108), Color(0.4, 0.7, 1.0), "Figuren 68..176 (2x: 88x112)", Vector2(250, 84)],
++		[Rect2(0, 177, 480, 36), Color(1.0, 0.4, 0.8), "Schilder 177..213", Vector2(250, 211)],
++		[Rect2(0, 215, 480, 105), Color(0.9, 0.3, 0.3), "Leiste 215..320", Vector2(250, 318)],
++		[Rect2(4, 218, 356, 17), Color(1, 1, 0.5), "Ansage 218..235", Vector2(200, 226)],
++		[Rect2(4, 237, 468, 20), Color(0.5, 1, 1), "Meldungen 237..257", Vector2(330, 247)],
++		[Rect2(4, 258, 472, 46), Color(1, 0.7, 0.3), "Karten 258..304", Vector2(340, 318)],
++	]
++	for z in zs:
++		draw_rect(z[0], Color(z[1], 0.95), false, 1.0)
++		_t1(z[3], String(z[2]), z[1], 7)
++
++
++## Beschriftete Zonen des heutigen Layouts, über einem Screenshot (--hudflag=zonesist, --zimg=Pfad).
++func _draw_zones_ist() -> void:
++	var zs := [
++		[Rect2(0, 0, 480, 166), Color(0.3, 0.9, 0.4), "Bühne 0..166 (52 %)", Vector2(250, 30)],
++		[Rect2(0, 0, 480, 44), Color(0.9, 0.9, 0.3), "Kopf 0..44", Vector2(330, 14)],
++		[Rect2(0, 48, 480, 12), Color(0.9, 0.5, 0.2), "Beschriftung 56", Vector2(300, 57)],
++		[Rect2(0, 62, 480, 58), Color(0.4, 0.7, 1.0), "Figuren 62..120 (1x: 44x56)", Vector2(250, 76)],
++		[Rect2(0, 126, 480, 40), Color(1.0, 0.4, 0.8), "Schilder 126..166", Vector2(250, 164)],
++		[Rect2(6, 164, 468, 68), Color(0.9, 0.3, 0.3), "Meldungen 172..232 (rechts leer)", Vector2(250, 200)],
++		[Rect2(6, 228, 468, 12), Color(1, 1, 0.5), "Hinweis 236", Vector2(330, 238)],
++		[Rect2(6, 242, 468, 58), Color(1, 0.7, 0.3), "Karten 242..300", Vector2(250, 296)],
++		[Rect2(6, 302, 150, 12), Color(0.5, 1, 1), "Abwarten 302", Vector2(250, 312)],
++	]
++	for z in zs:
++		draw_rect(z[0], Color(z[1], 0.95), false, 1.0)
++		_t1(z[3], String(z[2]), z[1], 7)
++
++
++## Aufstellung und Kampf (R5-Entwurf): Bühne y 0..215, untere Leiste y 215..320.
+ func _draw_combat_view(mouse: Vector2) -> void:
+ 	_btns.clear()
+ 	_tips.clear()
++	_hover_fighter = null
++	_hover_status = -1
++	if _chron_open and voy.combat != null:
++		_register(Rect2(4, 34, 196, 176), "fchronplatte")  # zuerst eingetragen: Klicks auf die Chronik treffen keinen Mann darunter
+ 	draw_rect(Rect2(0, 0, Waves.VIEW_W, Waves.VIEW_H), Color(0.02, 0.03, 0.05, 0.9))
++	if debug_flags.has("zonesist"):
++		if _zimg == null and debug_zimg != "":
++			var zi := Image.load_from_file(debug_zimg)
++			if zi != null:
++				_zimg = ImageTexture.create_from_image(zi)
++		if _zimg != null:
++			draw_texture_rect(_zimg, Rect2(0, 0, 480, 320), false)
++		_draw_zones_ist()
++		return
+ 	if voy.combat == null:
+ 		_draw_fight_prep(mouse)
+ 		_draw_tip(mouse)
+@@ -2350,56 +2916,44 @@
+ 		_fight_actor = c.actor
+ 		_fight_skill = ""
+ 		_fight_move = false
+-	_t(Vector2(14, 18), "Deckkampf: %s" % String(Foes.FORMATIONS[c.formation]["name"]), GOLD, 11)
+-	_t(Vector2(0, 18), "Runde %d" % c.round_no, DIM, 9, HORIZONTAL_ALIGNMENT_RIGHT, 466.0)
+-	# Zugleiste: wer als Nächstes dran ist
+-	var up := c.upcoming(10)
+-	for i in up.size():
+-		var u := up[i]
+-		var ur := Rect2(14.0 + float(i) * 22.0, 26.0, 20.0, 14.0)
+-		draw_rect(ur, INK)
+-		draw_rect(ur.grow(-1), Color("2a3a55") if u.side == 0 else Color("5b2a2a"))
+-		if i == 0:
+-			draw_rect(ur, GOLD, false, 1.0)
+-		_t(Vector2(ur.position.x, ur.position.y + 11), u.name.substr(0, 1), PAPER, 9, HORIZONTAL_ALIGNMENT_CENTER, ur.size.x)
+-		_tip(ur, Tips.fighter(c, u, ""))
+ 	_fight_events(c)
+ 	if c.state == "done" and _outro_for != c and voy.combat_outro > 0.0:
+ 		_outro_for = c
+ 		_fight_outro(c)
+ 	var zsc := _fx.zoom_scale()
+-	draw_set_transform(_fx.offset() + _fx.zoom_offset(), 0.0, Vector2(zsc, zsc))  # Wackeln und Kameraschub: nur die Bühne, nicht die Karten
++	draw_set_transform(_fx.offset() + _fx.zoom_offset(), 0.0, Vector2(zsc, zsc))  # Wackeln und Kameraschub: nur die Bühne
+ 	_draw_deck()
+-	_t(Vector2(14, 56), "Eure Männer (Reihe 1 vorn)", Color(DIM, 0.8), 8)
+-	_t(Vector2(246, 56), "Gegner", Color(DIM, 0.8), 8)
+ 	var armed_ally := _fight_skill != "" and String(Roles.skill(_fight_skill)["tgt"]) == "ally"
+ 	var valid_foes: Array[Combat.Fighter] = []
+ 	var valid_heroes: Array[Combat.Fighter] = []
++	var targeting := false
+ 	if c.state == "hero" and c.actor != null:
+ 		if _fight_skill != "":
++			targeting = true
+ 			var tl := c.targets(c.actor, _fight_skill)
+ 			if armed_ally:
+ 				valid_heroes = tl
+ 			else:
+ 				valid_foes = tl
+ 		elif _fight_move:
++			targeting = true
+ 			for hh in c.heroes:
+ 				if hh != c.actor:
+ 					valid_heroes.append(hh)
+ 	for f in c.foes:
+ 		if _is_big(f):
+-			_draw_fighter(c, f, mouse, valid_foes.has(f))  # Riesen stehen hinter allen anderen
++			_draw_fighter(c, f, mouse, valid_foes.has(f), targeting)  # Riesen stehen hinter allen anderen
+ 	for f in c.heroes:
+-		_draw_fighter(c, f, mouse, valid_heroes.has(f))
++		_draw_fighter(c, f, mouse, valid_heroes.has(f), targeting)
+ 	for f in c.foes:
+ 		if not _is_big(f):
+-			_draw_fighter(c, f, mouse, valid_foes.has(f))
++			_draw_fighter(c, f, mouse, valid_foes.has(f), targeting)
+ 	for f in c.foes:
+ 		if f.holding != null and not f.holding.gone:
+ 			# der Griff: ein Fangarm schwingt in einem Bogen über die Männer zum Gepackten
+-			var ga := Vector2(_fig_x(f) - 8.0, FIGHT_FEET - 40.0)
+-			var gb := Vector2(_fig_x(f.holding) + 9.0, FIGHT_FEET - 30.0)
+-			var gc := Vector2((ga.x + gb.x) * 0.5, FIGHT_FEET - 84.0)
++			var ga := Vector2(_fig_x(f) - 8.0, FIGHT_FEET - 2.0 * 40.0)
++			var gb := Vector2(_fig_x(f.holding) + 9.0, FIGHT_FEET - 2.0 * 30.0)
++			var gc := Vector2((ga.x + gb.x) * 0.5, FIGHT_FEET - 2.0 * 84.0)
+ 			var arc := PackedVector2Array()
+ 			for k in 13:
+ 				var u := float(k) / 12.0
+@@ -2410,59 +2964,17 @@
+ 	_draw_fight_overlay()
+ 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+ 	_draw_fight_texts()
+-	# Meldungen
+-	var jl := c.journal
+-	var first := maxi(jl.size() - 6, 0)
+-	for i in range(first, jl.size()):
+-		var e: Dictionary = jl[i]
+-		var col := PAPER
+-		if int(e["kind"]) == 1:
+-			col = GREEN
+-		elif int(e["kind"]) == 2:
+-			col = Color(0.9, 0.45, 0.4)
+-		_t(Vector2(14, 172.0 + float(i - first) * 10.0), String(e["text"]), col, 8, HORIZONTAL_ALIGNMENT_LEFT, 440.0)
+-	# Karten des Mannes, der dran ist
+-	if c.state == "hero" and c.actor != null:
+-		var opts := _fight_options(c)
+-		var hint := "Wähle ein Ziel (Q W E R oder Klick), Esc bricht ab." if (_fight_skill != "" or _fight_move) else "%s ist dran. Wähle eine Fertigkeit (1–6)." % c.actor.name
+-		_t(Vector2(14, 236), hint, GOLD, 9)
+-		for i in opts.size():
+-			var sid := opts[i]
+-			var cr := Rect2(6.0 + float(i) * 78.0, 242.0, 74.0, 58.0)
+-			var ok := true
+-			var title := ""
+-			var info: Array = []
+-			if sid == "move":
+-				title = "Platztausch"
+-				info = ["tauscht mit einem", "anderen Mann"]
+-				ok = c.heroes.size() > 1
+-			elif sid == "flee":
+-				title = "Rückzug"
+-				info = ["Kampf endet ohne", "Sieg"]
+-			else:
+-				var sk := Roles.skill(sid)
+-				title = String(sk["name"])
+-				ok = c.can_use(c.actor, sid)
+-				info = Tips.skill_short(c, c.actor, sid)
+-			var armed := _fight_skill == sid or (sid == "move" and _fight_move)
+-			var hover := ok and cr.has_point(mouse)
+-			_card(cr, UiSkin.State.SELECTED if armed else (UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if ok else UiSkin.State.DISABLED)))
+-			var icon := "swap" if sid == "move" else ("flee" if sid == "flee" else Roles.icon_of(sid))
+-			SkillIcons.draw(self, icon, cr.position + Vector2(4, 4), Color.WHITE if ok else Color(1, 1, 1, 0.4))
+-			_t(cr.position + Vector2(22, 11), "%d" % (i + 1), Color(DIM, 0.9) if not ok else Color(GOLD, 0.7), 7)
+-			_t(cr.position + Vector2(29, 13), title, GOLD if ok else DIM, 8 if title.length() <= 10 else 7, HORIZONTAL_ALIGNMENT_LEFT, 44.0)
+-			for k in info.size():
+-				_t(cr.position + Vector2(5, 31 + k * 10), String(info[k]), PAPER if ok else Color(DIM, 0.8), 7, HORIZONTAL_ALIGNMENT_LEFT, 66.0)
+-			if ok:
+-				_register(cr, "fs%d" % i)
+-			if sid != "move" and sid != "flee":
+-				_tip(cr, Tips.skill(c, c.actor, sid))
+-		var wait_r := Rect2(6, 302, 150, 12)
+-		_t(Vector2(14, 311), "Abwarten (Leertaste)", Color(PAPER, 0.9) if wait_r.has_point(mouse) else Color(DIM, 0.9), 8)
+-		_register(wait_r, "fwait")
+-	elif c.state == "foe" and c.actor != null:
+-		_t(Vector2(14, 246), "%s ist am Zug …" % c.actor.name, Color(0.9, 0.45, 0.4), 10)
+-	_draw_tip(mouse)
++	_draw_focus_plaque()
++	_draw_fight_header(c, mouse)
++	_draw_fight_bar(c, mouse)
++	if debug_flags.has("chron") or _chron_open:
++		_draw_chronik(c)
++	if debug_flags.has("zones"):
++		_draw_zones()
++	if _hover_fighter != null and not _chron_open:
++		_draw_fighter_card(c, _hover_fighter)
++	else:
++		_draw_tip(mouse)
+ 
+ 
+ ## Aufstellung: bis zu vier Kämpfer wählen; wer zuerst steht, kämpft vorn. Über den Symbolen wählt man die Fertigkeiten.
+@@ -2501,6 +3013,7 @@
+ 	var rx := 274.0
+ 	draw_rect(Rect2(rx - 6, 54, 1, 232), Color(DIM, 0.3))
+ 	_t(Vector2(rx, 66), "Kampfreihe (vorn zuerst)", GOLD, 9)
++	_t1(Vector2(rx, 66), "Fertigkeiten: klicken", Color(DIM, 0.9), 6, HORIZONTAL_ALIGNMENT_RIGHT, 184.0)
+ 	for i in 4:
+ 		var pr := Rect2(rx, 70.0 + float(i) * 24.0, 184, 22)
+ 		if i < party.size():
+@@ -2527,26 +3040,33 @@
+ 		else:
+ 			_card(pr, UiSkin.State.DISABLED, 0.55)
+ 			_t(pr.position + Vector2(6, 14), "%d  frei" % (i + 1), DIM, 9)
+-	# Gegner im Überblick, mit ihrer Aufgabe im Kampf
+-	_t(Vector2(rx, 182), "Gegner", RED, 9)
++	# Gegner im Überblick: Kopf, Name, Kraft und ihre Aufgabe im Kampf (R5-Entwurf: Karten statt Textzeilen)
++	_t(Vector2(rx, 180), "Gegner (vorn zuerst)", RED, 9, HORIZONTAL_ALIGNMENT_LEFT, 186.0)
+ 	var units: Array = voy.fight_prep.get("units", [])
+-	for i in units.size():
++	for i in mini(units.size(), 4):
+ 		var key := String(units[i])
+ 		var t: Dictionary = Foes.info(key)
+ 		var hint := Foes.role_hint(key)
+-		var line := "%d  %s  (Kraft %d)" % [i + 1, t["name"], roundi(float(t["hp"]) * Combat.FOE_HP * (1.0 + Combat.STAGE_HP * float(voy.stage - 1)))]
+-		_t(Vector2(rx, 195.0 + float(i) * 10.0), line + ("  · " + hint if hint != "" else ""), PAPER if hint == "" else GOLD, 8, HORIZONTAL_ALIGNMENT_LEFT, 186.0)
+-	var auto_b := Rect2(rx, 244, 90, 16)
++		var ur := Rect2(rx + float(i) * 46.0, 184, 44, 60)
++		_card(ur, UiSkin.State.NORMAL, 0.9, Color("8a3a35") if hint != "" else Color(0, 0, 0, 0))
++		draw_rect(Rect2(ur.position.x + 7, ur.position.y + 3, 30, 30), INK)
++		_draw_head_key(key, ur.position + Vector2(8, 4), 28.0)
++		_t1(ur.position + Vector2(0, 42), String(t["short"]), PAPER, _fit_size(String(t["short"]), 42.0, [7, 6]), HORIZONTAL_ALIGNMENT_CENTER, 44.0)
++		_t1(ur.position + Vector2(0, 50), "Kraft %d" % roundi(float(t["hp"]) * Combat.FOE_HP * (1.0 + Combat.STAGE_HP * float(voy.stage - 1))), DIM, 6, HORIZONTAL_ALIGNMENT_CENTER, 44.0)
++		if hint != "":
++			_t1(ur.position + Vector2(0, 57), hint, GOLD, 6, HORIZONTAL_ALIGNMENT_CENTER, 44.0)
++	var auto_b := Rect2(rx, 248, 90, 16)
+ 	_small_button(auto_b, "Beste vier (A)", reg and auto_b.has_point(mouse))
+-	var go := Rect2(rx + 94, 244, 90, 16)
++	var go := Rect2(rx + 94, 248, 90, 16)
+ 	var can_go := party.size() > 0
+-	_small_button(go, "Kampf! (Enter)", reg and go.has_point(mouse) and can_go, can_go)
++	UiSkin.button(self, go, UiSkin.State.HOVER if (reg and go.has_point(mouse) and can_go) else (UiSkin.State.SELECTED if can_go else UiSkin.State.DISABLED))
++	_t1(Vector2(go.position.x, go.position.y + 11.0), "Kampf! (Enter)", GOLD if can_go else DIM, 8, HORIZONTAL_ALIGNMENT_CENTER, go.size.x)
+ 	if reg:
+ 		_register(auto_b, "fauto")
+ 		_tip(auto_b, Tips.fight_auto())
+ 		if can_go:
+ 			_register(go, "fgo")
+-	_t(Vector2(rx, 278), "Tempo und Rolle bestimmen, wer wann was kann.", Color(DIM, 0.85), 7, HORIZONTAL_ALIGNMENT_LEFT, 186.0)
++	_t(Vector2(rx, 284), "Tempo und Rolle bestimmen, wer wann was kann.", Color(DIM, 0.85), 7, HORIZONTAL_ALIGNMENT_LEFT, 186.0)
+ 	if _loadout_man != null:
+ 		_draw_loadout(mouse)
+ 
+@@ -2570,14 +3090,23 @@
+ 		_card(rr, UiSkin.State.SELECTED if on else (UiSkin.State.HOVER if hh else UiSkin.State.NORMAL))
+ 		SkillIcons.draw(self, Roles.icon_of(sid), rr.position + Vector2(5, 6), Color.WHITE if on else Color(1, 1, 1, 0.6))
+ 		_t(rr.position + Vector2(28, 12), String(sk["name"]), GOLD if on else PAPER, 9, HORIZONTAL_ALIGNMENT_LEFT, 120.0)
+-		_t(rr.position + Vector2(28, 23), String(sk["desc"]), Color(PAPER, 0.85) if on else Color(DIM, 0.95), 6, HORIZONTAL_ALIGNMENT_LEFT, 300.0)
++		_t(rr.position + Vector2(28, 24), String(sk["desc"]), Color(PAPER, 0.85) if on else Color(DIM, 0.95), 7, HORIZONTAL_ALIGNMENT_LEFT, 310.0)
++		# R5-Entwurf: aus welchen Reihen die Fertigkeit einsetzbar ist (helle Felder), damit man vor dem Kampf wählen kann
++		var from_ranks: Array = sk["from"]
++		_t1(rr.position + Vector2(220, 10), "einsetzbar aus Reihe", Color(DIM, 0.9), 6, HORIZONTAL_ALIGNMENT_RIGHT, 70.0)
++		for rk in 4:
++			var chip := Rect2(rr.position.x + 296.0 + float(rk) * 11.0, rr.position.y + 3.0, 9, 9)
++			var usable := from_ranks.has(rk)
++			draw_rect(chip.grow(1), INK)
++			draw_rect(chip, Color("7a6224") if usable else Color("1b1a22"))
++			_t1(chip.position + Vector2(0, 7), "%d" % (rk + 1), PAPER if usable else Color(DIM, 0.45), 6, HORIZONTAL_ALIGNMENT_CENTER, 9.0)
+ 		_t(rr.position + Vector2(rr.size.x - 46, 17), "gewählt" if on else "", GREEN, 8, HORIZONTAL_ALIGNMENT_LEFT, 44.0)
+ 		_register(rr, "lo%d" % i)
+ 	var warn := ""
+ 	if m.role == Roles.Id.MUSKET and not chosen.has("m_nachladen"):
+ 		warn = "Ohne Nachladen ist die Muskete nach einem Schuss nutzlos."
+-	elif chosen.size() < Roles.MAX_LOADOUT:
+-		warn = "Noch %d Platz frei." % (Roles.MAX_LOADOUT - chosen.size())
++	else:
++		warn = "%d von %d gewählt." % [chosen.size(), Roles.MAX_LOADOUT]
+ 	_t(Vector2(48, 284), warn, RED if m.role == Roles.Id.MUSKET and not chosen.has("m_nachladen") else DIM, 8, HORIZONTAL_ALIGNMENT_LEFT, 200.0)
+ 	var def_b := Rect2(256, 274, 84, 16)
+ 	var done_b := Rect2(348, 274, 84, 16)

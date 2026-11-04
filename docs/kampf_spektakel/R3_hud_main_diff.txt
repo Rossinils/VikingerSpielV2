@@ -1,0 +1,282 @@
+--- Vikingerspiel_v2/scripts/hud.gd	2026-11-02 23:39:16.572486400 +0100
++++ _sandbox/buehne/scripts/hud.gd	2026-11-03 17:06:37.287168800 +0100
+@@ -1722,6 +1722,8 @@
+ var _loadout_man: CrewMember = null  # in der Aufstellung: wessen Fertigkeiten gerade gewählt werden
+ var _ev_actor: Combat.Fighter = null  # wer zuletzt zugeschlagen hat (Start der Pfeile und Fangarme)
+ var _ev_sk := ""
++var no_intro := false  # nur Sandbox: --nointro, damit Screenshots nicht von der Kampfansage überdeckt werden
++var stage: Control = null  # Prototyp der Kampfbühne (stage_proto.gd), solange gesetzt zeichnet das Hud nur Beschriftung und Klickflächen
+ var _fx := FightFx.new()  # Hiebbögen, Pfeile, Leuchten, Banner, Wackeln (scripts/fight_fx.gd)
+ 
+ 
+@@ -1908,7 +1910,7 @@
+ 	var loud := fresh <= 24
+ 	if _intro_pending:
+ 		_intro_pending = false
+-		if c.round_no <= 1 and loud:
++		if c.round_no <= 1 and loud and not no_intro:
+ 			var boss := c.formation == "kraken"
+ 			_fx.show_big("DER KRAKEN" if boss else "KAMPF", "Fangarme zuerst, dann der Körper" if boss else String(Foes.FORMATIONS[c.formation]["name"]), Color(0.9, 0.35, 0.35), 1.9 if boss else 1.5)
+ 			_fx.flash(Color(0, 0, 0, 0.5), 0.7)
+@@ -2234,6 +2236,9 @@
+ 	var big := _is_big(f)
+ 	if big and f.charge and a.is_empty():
+ 		col = 4
++	if stage != null:
++		_draw_fighter_labels(c, f, mouse, valid, active, big)
++		return
+ 	# Schatten und Markierung unter den Füßen
+ 	if not big:
+ 		draw_rect(Rect2(cx - 14, FIGHT_FEET - 1, 28, 3), Color(0, 0, 0, 0.4))
+@@ -2277,7 +2282,51 @@
+ 	_tip(rect, Tips.fighter(c, f, _fight_skill if valid else ""))
+ 
+ 
++## Bühnenmodus: Namen, Balken, Zustände, Pfeile und Klickflächen. Die Lage kommt aus der Kamera der Bühne (xf), die Schrift
++## bleibt ungestreckt und scharf; die Plaketten sitzen auf einer festen Zeile unter dem Boden und folgen der Figur nur in x.
++func _draw_fighter_labels(c: Combat, f: Combat.Fighter, mouse: Vector2, valid: bool, active: bool, big: bool) -> void:
++	var xf: Transform2D = stage.actor_xf()
++	var cx := _fig_x(f)
++	var bp: Vector2 = xf * Vector2(cx, FIGHT_FEET)
++	var sc := xf.x.x
++	var rect := _fighter_rect(f)
++	var rect_s: Rect2 = xf * rect
++	var lx := roundf(bp.x)
++	if active and f.side == 0:
++		var ay := roundf(bp.y - 60.0 * sc)
++		draw_colored_polygon(PackedVector2Array([Vector2(lx - 4, ay), Vector2(lx + 4, ay), Vector2(lx, ay + 5)]), GOLD)
++	if valid:
++		var vy := roundf(bp.y - (92.0 if big else 62.0) * sc)
++		draw_colored_polygon(PackedVector2Array([Vector2(lx - 4, vy), Vector2(lx + 4, vy), Vector2(lx, vy + 5)]), RED if f.side == 1 else GREEN)
++		_register(rect_s.grow(4), "ft%d_%d" % [f.side, f.rank])
++	var ly := FIGHT_FEET
++	var nm := f.name if f.side == 0 else String(Foes.info(f.kind).get("short", f.name))
++	_t(Vector2(lx - 26, ly + 14), nm, PAPER, 8, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
++	_bar(lx - 19, ly + 18, 38, 4, f.hp / f.hp_max, _kraft_col(f.hp) if f.side == 0 else RED)
++	if f.side == 0 and f.man != null:
++		UiSkin.mini_bar(self, lx - 19, ly + 24, 38, clampf(f.man.stress, 0.0, 100.0) / 100.0, VIOLET if f.man.stress < 70.0 else RED)
++	var info := "%d" % maxi(roundi(f.hp), 0)
++	var stext := _status_text(f)
++	if stext != "":
++		info += "  " + stext
++	_t(Vector2(lx - 26, ly + 36), info, PAPER if stext == "" else GOLD, 7, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
++	if f.side == 1 and f.guarded:
++		_t(Vector2(lx - 38, ly + 46), "geschützt" if c._tentacles() > 0 else "offen!", DIM if c._tentacles() > 0 else GREEN, 7, HORIZONTAL_ALIGNMENT_CENTER, 76.0)
++	_tip(rect_s, Tips.fighter(c, f, _fight_skill if valid else ""))
++
++
+ func _draw_fight_overlay() -> void:
++	if stage != null:
++		var xf: Transform2D = stage.actor_xf()
++		for fl in _floats:
++			if float(fl.get("wait", 0.0)) > 0.0:
++				continue
++			var al3 := clampf(float(fl["t"]) / 0.5, 0.0, 1.0)
++			var size3 := 14 if bool(fl["big"]) else 10
++			var col3: Color = fl["col"]
++			var fp: Vector2 = xf * Vector2(float(fl["x"]), float(fl["y"]))
++			_t(Vector2(roundf(fp.x) - 30.0, roundf(fp.y)), String(fl["text"]), Color(col3, al3), size3, HORIZONTAL_ALIGNMENT_CENTER, 60.0)
++		return
+ 	for g in _ghosts:
+ 		var f: Combat.Fighter = g["f"]
+ 		var span := 1.2 if _is_big(f) else 0.7
+@@ -2305,7 +2354,7 @@
+ func _draw_fight_texts() -> void:
+ 	# Vignette: die Ränder der Bühne sind dunkel, bei großen Ansagen noch mehr
+ 	var vs := 0.34 + (0.3 if not _fx.big.is_empty() else 0.0)
+-	for i in 8:
++	for i in (0 if stage != null else 8):
+ 		var k := vs * (1.0 - float(i) / 8.0)
+ 		draw_rect(Rect2(float(i) * 4.0, 0, 4, 166), Color(0, 0, 0, k * 0.8))
+ 		draw_rect(Rect2(Waves.VIEW_W - float(i + 1) * 4.0, 0, 4, 166), Color(0, 0, 0, k * 0.8))
+@@ -2340,7 +2389,12 @@
+ func _draw_combat_view(mouse: Vector2) -> void:
+ 	_btns.clear()
+ 	_tips.clear()
+-	draw_rect(Rect2(0, 0, Waves.VIEW_W, Waves.VIEW_H), Color(0.02, 0.03, 0.05, 0.9))
++	var stg := stage != null and voy.combat != null
++	if stg:
++		draw_rect(Rect2(0, 166, Waves.VIEW_W, Waves.VIEW_H - 166.0), Color(0.02, 0.03, 0.05, 0.94))
++		draw_rect(Rect2(0, 166, Waves.VIEW_W, 1), Color(0.0, 0.0, 0.0, 0.8))
++	else:
++		draw_rect(Rect2(0, 0, Waves.VIEW_W, Waves.VIEW_H), Color(0.02, 0.03, 0.05, 0.9))
+ 	if voy.combat == null:
+ 		_draw_fight_prep(mouse)
+ 		_draw_tip(mouse)
+@@ -2368,10 +2422,13 @@
+ 		_outro_for = c
+ 		_fight_outro(c)
+ 	var zsc := _fx.zoom_scale()
+-	draw_set_transform(_fx.offset() + _fx.zoom_offset(), 0.0, Vector2(zsc, zsc))  # Wackeln und Kameraschub: nur die Bühne, nicht die Karten
+-	_draw_deck()
+-	_t(Vector2(14, 56), "Eure Männer (Reihe 1 vorn)", Color(DIM, 0.8), 8)
+-	_t(Vector2(246, 56), "Gegner", Color(DIM, 0.8), 8)
++	if stg:
++		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)  # die Kamera liegt in der Bühne, das Hud legt nur Plaketten und Klickflächen hindurch
++	else:
++		draw_set_transform(_fx.offset() + _fx.zoom_offset(), 0.0, Vector2(zsc, zsc))  # Wackeln und Kameraschub: nur die Bühne, nicht die Karten
++		_draw_deck()
++		_t(Vector2(14, 56), "Eure Männer (Reihe 1 vorn)", Color(DIM, 0.8), 8)
++		_t(Vector2(246, 56), "Gegner", Color(DIM, 0.8), 8)
+ 	var armed_ally := _fight_skill != "" and String(Roles.skill(_fight_skill)["tgt"]) == "ally"
+ 	var valid_foes: Array[Combat.Fighter] = []
+ 	var valid_heroes: Array[Combat.Fighter] = []
+@@ -2394,6 +2451,8 @@
+ 	for f in c.foes:
+ 		if not _is_big(f):
+ 			_draw_fighter(c, f, mouse, valid_foes.has(f))
++	if stg:
++		draw_set_transform_matrix(stage.actor_xf())
+ 	for f in c.foes:
+ 		if f.holding != null and not f.holding.gone:
+ 			# der Griff: ein Fangarm schwingt in einem Bogen über die Männer zum Gepackten
+@@ -2407,8 +2466,11 @@
+ 			draw_polyline(arc, Color("3a2552"), 5.0)
+ 			draw_polyline(arc, Color("6b4a8a"), 3.0)
+ 			draw_polyline(arc, Color("8a62a6"), 1.0)
+-	_draw_fight_overlay()
++	if not stg:
++		_draw_fight_overlay()  # im alten Bild noch innerhalb der gestreckten Bühne
+ 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
++	if stg:
++		_draw_fight_overlay()
+ 	_draw_fight_texts()
+ 	# Meldungen
+ 	var jl := c.journal
+--- Vikingerspiel_v2/scripts/main.gd	2026-11-02 23:42:41.147896200 +0100
++++ _sandbox/buehne/scripts/main.gd	2026-11-03 23:19:04.333487700 +0100
+@@ -56,6 +56,13 @@
+ var _hover_mouse_arg := Vector2(-1, -1)  # --hovermouse=x,y: Tooltip-Screenshot mit "Maus" an dieser Stelle (Spielfeldpixel)
+ var _start_help := true
+ var _start_select := -1
++var _no_intro := false
++var _click_test := false
++var _shot_form := ""
++var _stage_on := false  # Prototyp der Kampfbuehne (scripts/stage_proto.gd): --stage oder --stage=opt1,opt2
++var _stage_opt: Dictionary = {}
++var _stage_test := ""  # --stagetest=a|b|c|d|e: Einzelbeweise ohne Spiel (scripts/stage_test.gd)
++var _stage_test_arg := ""
+ 
+ 
+ func _ready() -> void:
+@@ -127,6 +134,27 @@
+ 			_shot_fx = int(arg.substr(arg.length() - 1)) if arg != "--shotfx" else 1
+ 		elif arg == "--shotheroic" or arg == "--shotsnap":
+ 			_shot_snap = "heroic" if arg == "--shotheroic" else "break"
++		elif arg == "--stage" or arg.begins_with("--stage="):
++			_stage_on = true
++			if arg.begins_with("--stage="):
++				for o in arg.get_slice("=", 1).split(","):
++					if String(o).contains(":"):
++						_stage_opt[String(o).get_slice(":", 0)] = String(o).get_slice(":", 1)
++					else:
++						_stage_opt[String(o)] = true
++		elif arg.begins_with("--shotform="):
++			_shot_form = arg.get_slice("=", 1)
++		elif arg == "--clicktest":
++			_click_test = true
++		elif arg == "--nointro":
++			_no_intro = true
++		elif arg.begins_with("--winsize="):  # nur Pruefung der Letterbox: Fenstergroesse erzwingen, z. B. --winsize=2000x1500
++			var wsz := arg.get_slice("=", 1)
++			get_window().mode = Window.MODE_WINDOWED
++			get_window().size = Vector2i(int(wsz.get_slice("x", 0)), int(wsz.get_slice("x", 1)))
++		elif arg.begins_with("--stagetest="):
++			_stage_test = arg.get_slice("=", 1).get_slice(":", 0)
++			_stage_test_arg = arg.get_slice("=", 1).get_slice(":", 1) if arg.get_slice("=", 1).contains(":") else ""
+ 		elif arg == "--shottavern":
+ 			_shot_tavern = true
+ 		elif arg == "--shotcamp":
+@@ -192,6 +220,22 @@
+ 	ui.add_child(_hud)
+ 	add_child(ui)
+ 	_hud.setup(_voy)
++	_hud.no_intro = _no_intro
++	if _stage_on and (DisplayServer.get_name() != "headless" or _stage_opt.has("force")):
++		var stg: Control = load("res://scripts/stage_proto.gd").new()
++		stg.voy = _voy
++		stg.hud = _hud
++		stg.world = _world
++		stg.opt = _stage_opt
++		add_child(stg)  # nach der Welt, vor dem Hud (CanvasLayer 1): zeichnet sich dazwischen
++		_hud.stage = stg
++	if _stage_test != "" and DisplayServer.get_name() != "headless":
++		_world.visible = false
++		ui.visible = false
++		var tst: Node2D = load("res://scripts/stage_test.gd").new()
++		tst.mode = _stage_test
++		tst.arg = _stage_test_arg
++		add_child(tst)
+ 
+ 	if _bot == "" and DisplayServer.get_name() != "headless":
+ 		_voy.combat_outro = 1.9  # Schlussansage nach dem Deckkampf (Bots und Tests lösen sofort auf)
+@@ -259,6 +303,18 @@
+ 					guard_n += 1
+ 			if _shot_fight >= 3 and _voy.combat != null and _voy.combat.state == "hero":
+ 				_hud._fight_skill = String(_voy.combat.actor.skills[0])
++	if _shot_form != "":  # Screenshot (Sandbox): Deckkampf gegen eine bestimmte Formation (draugr, raeuber, haendler, dorf, kraken)
++		_hud.hide_help()
++		_voy.auto_combat = false
++		_voy.stage = 3
++		_voy.start_fight(_shot_form, {"source": "encounter"}, 3)
++		_voy.fight_begin()
++		var fc := _voy.combat
++		var fguard := 0
++		while fc.state == "foe" and fguard < 20:
++			fc.act_foe()
++			fguard += 1
++		_voy._combat_t = 9999.0
+ 	if _shot_kraken > 0:  # Screenshot: der Kraken im Deckkampf
+ 		_hud.hide_help()
+ 		_voy.auto_combat = false
+@@ -485,9 +541,42 @@
+ 		if Waves.time >= _shot_time and phase_ok:
+ 			var path := _shot_path
+ 			_shot_path = ""
++			if _click_test and _voy.combat != null:
++				_click_test = false
++				_run_click_test(path)
++				return
+ 			_take_shot(path)
+ 
+ 
++## Sandbox: Pruefung der Klickflaechen der Buehne (--clicktest): Fertigkeit waehlen, ein Bild warten, Rechtecke ausgeben, in die Mitte
++## des ersten Gegners klicken und sehen, ob der Kampf reagiert. Danach das Bild.
++func _run_click_test(path: String) -> void:
++	var tc: Combat = _voy.combat
++	for sk0 in tc.actor.skills:  # die erste Fertigkeit, die gegen einen Gegner benutzbar ist (der Zufall setzt die Mannschaft)
++		if Roles.skill(String(sk0))["tgt"] != "ally" and tc.can_use(tc.actor, String(sk0)) and tc.needs_target(String(sk0)) and tc.targets(tc.actor, String(sk0)).size() > 0:
++			_hud._fight_skill = String(sk0)
++			break
++	for i in int(_stage_opt.get("wait", 3)):  # --stage=wait:90 wartet, bis die Kamera ruhig steht
++		await get_tree().process_frame
++	var first := Vector2(-1, -1)
++	for bt in _hud._btns:
++		var rct: Rect2 = bt["rect"]
++		if String(bt["id"]).begins_with("ft"):
++			print("STAGE Klickflaeche ", bt["id"], " ", rct)
++		if String(bt["id"]) == "ft1_0":
++			first = rct.get_center()
++	var ev_before := _voy.combat.events.size()
++	var hp_before: float = _voy.combat.foes[0].hp
++	var xf: Transform2D = _hud.stage.actor_xf() if _hud.stage != null else Transform2D.IDENTITY
++	print("STAGE Kamera Zoom ", xf.x.x, " Versatz ", xf.origin)
++	if first.x >= 0.0:
++		_click(first)
++	for i in 30:
++		await get_tree().process_frame
++	print("STAGE Klicktest: Mitte ", first, " Ereignisse ", ev_before, " -> ", _voy.combat.events.size(), " Kraft des ersten Gegners ", hp_before, " -> ", _voy.combat.foes[0].hp)
++	_take_shot(path)
++
++
+ ## Nur für Screenshots und Fehlersuche (--shotslot=play|playloki): dreht den Automaten durch die echte Anzeige, immer weiter.
+ func _shot_slot_play() -> void:
+ 	_voy.loot = maxf(_voy.loot, 400.0)
+@@ -515,6 +604,7 @@
+ 	await RenderingServer.frame_post_draw
+ 	var img := get_viewport().get_texture().get_image()
+ 	img.save_png(path)
++	print("STAGE Messung: Zeichenaufrufe=%d Primitive=%d Objekte=%d Viewport=%s Fenster=%s" % [Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), str(get_viewport().get_visible_rect().size), str(get_window().size)])
+ 	print("Screenshot %dx%d: %s" % [img.get_width(), img.get_height(), path])
+ 	get_tree().quit()
+ 

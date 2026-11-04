@@ -1,0 +1,67 @@
+shader_type canvas_item;
+render_mode unshaded;
+
+// Vollbild-Abstufung der Kampfbuehne (Prototyp): liest alles, was darunter schon gezeichnet ist
+// (hint_screen_texture), dunkelt ab, entsaettigt, faerbt je Kampfort und laesst einen Lichtkegel
+// (Rampenlicht) frei. Raster und Dithering wie sky/ocean: harte 480x320-Pixel, kein weicher Verlauf.
+// Spielfeldkoordinaten kommen aus UV (0..1 ueber das ColorRect). Geprueft (R3_buehne.md 2.1): bei Letterbox (Fenster nicht 3:2) ist die
+// Viewport-Textur genau das Spielfeld, SCREEN_UV * view ergibt dieselben Pixel (Foto Byte fuer Byte gleich); UV bleibt die sauberere Wahl.
+
+uniform sampler2D screen_tex : hint_screen_texture, filter_nearest, repeat_disable;
+uniform vec2 view = vec2(480.0, 320.0);
+uniform vec2 rect_pos = vec2(0.0, 0.0);      // Lage des ColorRect im Spielfeld (fuer Teilflaechen)
+uniform vec2 rect_size = vec2(480.0, 320.0);
+uniform vec2 spot = vec2(240.0, 110.0);
+uniform vec2 spot_r = vec2(120.0, 70.0);
+uniform float spot_amt : hint_range(0.0, 1.0) = 1.0;
+uniform float dark : hint_range(0.0, 1.0) = 0.5;
+uniform float desat : hint_range(0.0, 1.0) = 0.5;
+uniform vec3 tint : source_color = vec3(0.45, 0.7, 0.85);
+uniform float tint_amt : hint_range(0.0, 1.0) = 0.3;
+uniform vec3 warm : source_color = vec3(1.0, 0.88, 0.7);
+uniform float warm_amt : hint_range(0.0, 1.0) = 0.25;
+uniform float vig : hint_range(0.0, 1.0) = 0.5;
+uniform float steps = 5.0;
+uniform bool use_screen_uv_for_pos = false;  // nur zur Vorfuehrung des Fehlers bei Letterbox
+uniform float cell = 1.0;  // Rasterweite des Ditherings in Spielfeld-Pixeln: bei Kamerazoom z = z, damit das Raster zur gezoomten Pixelart passt
+
+const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+
+float bayer4(vec2 p) {
+	int x = int(mod(p.x, 4.0));
+	int y = int(mod(p.y, 4.0));
+	return (BAYER[y * 4 + x] + 0.5) / 16.0;
+}
+
+void fragment() {
+	vec2 g = rect_pos + UV * rect_size;
+	if (use_screen_uv_for_pos) {
+		g = SCREEN_UV * view;
+	}
+	vec2 gp = floor(g);
+	vec4 src = texture(screen_tex, SCREEN_UV);
+	float bm = bayer4(floor(g / cell));
+
+	// Lichtkegel: Ellipse, in Stufen gedithert
+	float d = length((gp + 0.5 - spot) / spot_r);
+	float L = (1.0 - smoothstep(0.2, 1.0, d)) * spot_amt;
+	float Lq = clamp(floor(L * steps + bm) / steps, 0.0, 1.0);
+
+	// Abgedunkelte Fassung: entsaettigt, gefaerbt, dunkler
+	float lum = dot(src.rgb, vec3(0.299, 0.587, 0.114));
+	vec3 dimc = mix(src.rgb, vec3(lum), desat);
+	dimc = mix(dimc, dimc * tint * 1.7, tint_amt);
+	dimc *= (1.0 - dark);
+	// Beleuchtete Fassung: Original, eine Spur waermer
+	vec3 litc = mix(src.rgb, src.rgb * warm * 1.1, warm_amt);
+	vec3 col = mix(dimc, litc, Lq);
+
+	// Vignette (gedithert)
+	vec2 e = (g - 0.5 * view) / (0.5 * view);
+	float vd = length(e * vec2(1.0, 1.25));
+	float V = clamp((vd - 0.55) / 0.75, 0.0, 1.0) * vig;
+	float Vq = floor(V * 5.0 + bm) / 5.0;
+	col *= 1.0 - Vq * 0.85;
+
+	COLOR = vec4(col, 1.0);
+}

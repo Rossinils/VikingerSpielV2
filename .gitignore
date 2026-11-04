@@ -1,0 +1,22 @@
+# Godot: Importcache und Editor-Zustand (wird beim Öffnen neu erzeugt)
+.godot/
+*.translation
+
+# Fertige Spielstände zum Verschicken (161 MB exe, 91 MB zip: zu groß für GitHub)
+build/
+
+# Musik (214 MB, wird von tools/make_music.py erzeugt; bei Bedarf hier entfernen und per Git LFS führen)
+Musik/
+
+# Python
+__pycache__/
+*.pyc
+
+# Arbeitskopien der Helfer und Sicherungen
+_sandbox/
+_backup_vor_kampfspektakel/
+
+# Betriebssystem und Editor
+Thumbs.db
+.DS_Store
+*.tmp

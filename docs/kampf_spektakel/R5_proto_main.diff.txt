@@ -1,0 +1,130 @@
+--- _backup_vor_kampfspektakel/scripts/main.gd	2026-11-02 23:42:41.147896200 +0100
++++ _sandbox/oberflaeche/scripts/main.gd	2026-11-03 23:21:18.970504800 +0100
+@@ -46,6 +46,9 @@
+ var _shot_fx := 0  # Deckkampf mitten im Schuss (1, --shotfx), Hieb (2, --shotfx2) oder Musketenschuss (3, --shotfx3)
+ var _shot_loadout := false  # Aufstellung mit der Fertigkeitenwahl des Musketiers (--shotloadout)
+ var _shot_snap := ""  # Deckkampf mit Heldenmut (--shotheroic) oder Zusammenbruch (--shotsnap)
++var _shot_ui := ""  # R5-Oberfläche: --shotui=pick|move|foe|win|lose|flee|stat|lo|lo2|prep3|kprep
++var _hud_flags: Array = []  # --hudflag=chron,zones,zonesist (nur Entwurf R5)
++var _zimg_arg := ""  # --zimg=Pfad: Hintergrundbild für zonesist
+ var _shot_tavern := false  # Hafen mit Taverne und Reserve (--shottavern)
+ var _shot_camp := false  # Lager an einer Ankerbucht (--shotcamp)
+ var _shot_slot := ""  # Spielautomat: --shotslot=spin|win|alive|free|jackpot (Nornenwalzen im Hafen), loki|loki_win|loki_curse (Adlerssons Schiff)
+@@ -127,6 +130,12 @@
+ 			_shot_fx = int(arg.substr(arg.length() - 1)) if arg != "--shotfx" else 1
+ 		elif arg == "--shotheroic" or arg == "--shotsnap":
+ 			_shot_snap = "heroic" if arg == "--shotheroic" else "break"
++		elif arg.begins_with("--shotui="):
++			_shot_ui = arg.get_slice("=", 1)
++		elif arg.begins_with("--hudflag="):
++			_hud_flags = Array(arg.get_slice("=", 1).split(","))
++		elif arg.begins_with("--zimg="):
++			_zimg_arg = arg.substr(7)
+ 		elif arg == "--shottavern":
+ 			_shot_tavern = true
+ 		elif arg == "--shotcamp":
+@@ -218,6 +227,8 @@
+ 			_voy.select_route(int(_voy.next_links()[0]))  # nur für Screenshots: Vorschau mit Kurs
+ 	_hud.debug_hover = _hover_dial_arg
+ 	_hud.debug_mouse = _hover_mouse_arg
++	_hud.debug_flags = _hud_flags
++	_hud.debug_zimg = _zimg_arg
+ 	if _give_loot:
+ 		_voy.loot = 600.0
+ 		for id in ["beschlag", "tuch", "kanone", "kanone", "fass"]:
+@@ -340,6 +351,95 @@
+ 		sc.heroes[1].man.stress = 98.0
+ 		sc._stress(sc.heroes[1], 6.0)
+ 		_voy._combat_t = 9999.0
++	if _shot_ui != "":  # R5: Oberflächenzustände des Deckkampfs
++		_hud.hide_help()
++		_voy.auto_combat = false
++		_voy.stage = 3
++		if _shot_ui == "kprep":
++			_voy.start_fight("kraken", {"source": "encounter"}, 3)
++		else:
++			_voy._enc_pending = Encounters.Id.HAENDLER
++			_voy._advance()
++			_voy.decide_encounter(0)
++		if _shot_ui == "lo" or _shot_ui == "lo2":
++			var lop: Array = _voy.fight_prep["party"]
++			_hud._loadout_man = lop[0] if _shot_ui == "lo" else lop[2]
++		elif _shot_ui == "prep3":
++			(_voy.fight_prep["party"] as Array).resize(2)
++		elif _shot_ui != "kprep":
++			if _shot_ui == "long" or _shot_ui == "long2":  # lange Fertigkeitsnamen auf den Karten
++				var lpool: Array = _voy.fight_prep["pool"]
++				var lparty: Array = _voy.fight_prep["party"]
++				for lm in lparty:
++					if lm.role == Roles.Id.SCHILD:
++						lm.loadout = ["s_ruf", "s_deckung", "s_rund", "s_hieb"]
++				if _shot_ui == "long2":
++					for lm in lpool:
++						if lm.role == Roles.Id.MUSKET and not lparty.has(lm):
++							lm.loadout = ["m_kopf", "m_knall", "m_streu", "m_nachladen"]
++							lparty[1] = lm
++							break
++			_voy.fight_begin()
++			var uc := _voy.combat
++			var ug := 0
++			while uc.state == "foe" and ug < 20:
++				uc.act_foe()
++				ug += 1
++			_voy._combat_t = 9999.0
++			if _shot_ui == "pick" or _shot_ui == "move" or _shot_ui == "long" or _shot_ui == "long2":
++				var want: Array = [Roles.Id.MUSKET] if _shot_ui == "long2" else ([Roles.Id.SCHILD] if _shot_ui == "long" else [Roles.Id.AXT, Roles.Id.SCHILD])
++				while uc.state == "hero" and not (uc.actor.role in want) and ug < 60:
++					uc.hero_pass()
++					while uc.state == "foe" and ug < 60:
++						uc.act_foe()
++						ug += 1
++					ug += 1
++				_hud._fight_actor = uc.actor
++				if _shot_ui == "pick":
++					_hud._fight_skill = String(uc.actor.skills[0])
++				else:
++					_hud._fight_move = true
++			elif _shot_ui == "foe" or _shot_ui == "foeact":
++				while uc.state == "hero" and ug < 60:
++					uc.hero_pass()
++					ug += 1
++				if _shot_ui == "foeact" and uc.state == "foe":
++					uc.act_foe()
++			elif _shot_ui == "stat":
++				uc.heroes[0].door = true
++				uc.heroes[0].hp = 10.0
++				uc.heroes[1].blind = 2
++				uc.heroes[1].hp = 38.0
++				var h2 := uc.heroes[2]
++				h2.stun = 1
++				h2.bleed_turns = 2
++				h2.bleed_dmg = 3.0
++				h2.mark = 2
++				h2.guard = 2
++				h2.buff = 2
++				h2.hp = 62.0
++				uc.heroes[3].guard = 2
++				uc.heroes[3].buff = 2
++				uc.foes[0].mark = 2
++				uc.foes[0].bleed_turns = 2
++				uc.foes[0].bleed_dmg = 3.0
++				uc.foes[0].hp = 20.0
++				uc.foes[1].stun = 1
++				uc.foes[1].buff = 2
++				uc.foes[2].blind = 1
++			elif _shot_ui == "win":
++				_voy.combat_outro = 3.0
++				for wf in uc.foes.duplicate():
++					uc._hurt(wf, 9999, null)
++				uc.hero_pass()
++			elif _shot_ui == "lose":
++				_voy.combat_outro = 3.0
++				for lf in uc.heroes.duplicate():
++					uc._kill_hero(lf)
++				uc.hero_pass()
++			elif _shot_ui == "flee":
++				_voy.combat_outro = 3.0
++				uc.hero_flee()
+ 	if _shot_tavern:  # Screenshot: Hafen mit Taverne, zwei Männer in der Reserve
+ 		_hud.hide_help()
+ 		_voy.loot = 400.0

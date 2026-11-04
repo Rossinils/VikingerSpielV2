@@ -1,0 +1,29 @@
+extends SceneTree
+
+## Nur für die Analyse (Arbeitskopie "ablauf"): Wie viel von der Schlussansage (1,9 s) läuft ab, wenn der letzte Treffer in Zeitlupe stirbt?
+## Bildet die Uhren nach: Voyage._outro_t läuft in echter Zeit, FightFx (Banner) in Anzeigezeit (Zeitlupe, Einfrieren).
+
+
+func _init() -> void:
+	for mode in ["ohne Zeitlupe", "letzter Gegner (Tod, Zeitlupe 0,3 x 1,0 s, Einfrieren 0,09 s)", "Krit auf den letzten Gegner (zusätzlich Zeitlupe 0,5 x 0,25 s, Einfrieren 0,07 s)"]:
+		var fx := FightFx.new()
+		var hold := 0.2
+		if mode != "ohne Zeitlupe":
+			fx.cue("freeze", {"d": 0.09}, hold)
+			fx.cue("slowmo", {"f": 0.3, "d": 1.0}, hold)
+		if mode.begins_with("Krit"):
+			fx.cue("freeze", {"d": 0.07}, hold)
+			fx.cue("slowmo", {"f": 0.5, "d": 0.25}, hold)
+		fx.show_big("SIEG", "x", Color.WHITE, 1.9)
+		var outro := 1.9
+		var real := 0.0
+		var dt := 1.0 / 60.0
+		var fx_time := 0.0
+		while real < outro:
+			real += dt
+			var ran := fx.tick(dt)
+			if ran:
+				fx_time += dt * fx.time_scale()
+		var rest := float(fx.big["t"]) if not fx.big.is_empty() else 0.0
+		print("%-95s Banner nach %.2f s echt: Rest %.2f von 1.90 s Anzeigezeit (%.0f %% gelaufen, Anzeigezeit gesamt %.2f)" % [mode, real, rest, 100.0 * (1.0 - rest / 1.9), fx_time])
+	quit()

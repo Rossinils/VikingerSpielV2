@@ -1,0 +1,147 @@
+extends SceneTree
+
+## Nur für die Analyse (Arbeitskopie "ablauf"): Griff, Überbordgehen, Kraken-Tod, Betäubung, Zugzahlen je Kampf.
+
+var v: Voyage
+
+
+func _init() -> void:
+	v = Voyage.new()
+	v.auto_combat = true
+	root.add_child(v)
+	v.begin()
+	seed(11)
+	_grab()
+	_kraken_death()
+	_stun_skip()
+	_stats()
+	quit()
+
+
+func party(roles: Array) -> Array:
+	var out: Array = []
+	for i in roles.size():
+		var m := CrewMember.new()
+		m.id = 700 + i
+		m.display_name = "H%d" % i
+		m.role = roles[i]
+		m.kraft = 100.0
+		m.stress = 0.0
+		out.append(m)
+	return out
+
+
+func mk(roles: Array, units: Array, form: String = "draugr", stage: int = 1) -> Combat:
+	var u: Array[String] = []
+	for k in units:
+		u.append(String(k))
+	var c := Combat.create(v, form, party(roles), u, stage)
+	c.begin()
+	return c
+
+
+func nm(f: Combat.Fighter) -> String:
+	if f == null:
+		return "-"
+	return "%s%s(r%d)" % ["H" if f.side == 0 else "F", f.name if f.side == 0 else f.kind, f.rank]
+
+
+func dump(c: Combat, from_id: int, title: String) -> void:
+	print("--- ", title, "  [state=", c.state, " actor=", nm(c.actor), " result=", c.result, "]")
+	for ev in c.events:
+		if int(ev["id"]) > from_id:
+			print("   #%d %-9s who=%-16s sk=%-14s n=%d crit=%s text='%s'" % [ev["id"], ev["type"], nm(ev["who"]), ev["sk"], ev["n"], ev["crit"], ev["text"]])
+
+
+func _grab() -> void:
+	for trial in 60:
+		var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["tentakel", "tentakel", "kraken"], "kraken")
+		var arm := c.foes[0]
+		var from := c._ev_id
+		c._execute(arm, "f_kr_griff", c.heroes[1])
+		if arm.holding != null:
+			dump(c, from, "Griff gelingt (Versuch %d)" % trial)
+			from = c._ev_id
+			arm.hold_left = 2
+			c._hold_turn(arm)
+			dump(c, from, "Haltezug 1")
+			from = c._ev_id
+			c._hold_turn(arm)
+			dump(c, from, "Haltezug 2: ueber Bord")
+			return
+
+
+func _kraken_death() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["tentakel", "tentakel", "kraken"], "kraken")
+	var body: Combat.Fighter = c.foes[c.foes.size() - 1]
+	var from := c._ev_id
+	c._hurt(body, 9999, null)
+	dump(c, from, "Kraken stirbt bei laufenden Fangarmen")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["tentakel", "kraken"], "kraken")
+	c.foes[0].hold_left = 2
+	c.foes[0].holding = c.heroes[1]
+	c.heroes[1].held_by = c.foes[0]
+	from = c._ev_id
+	c._hurt(c.foes[0], 9999, null)
+	dump(c, from, "Fangarm mit Gefangenem faellt (frei!)")
+
+
+func _stun_skip() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost"])
+	var g := 0
+	while c.state != "done" and g < 30:
+		g += 1
+		if c.state == "foe":
+			break
+		c.hero_pass()
+	# der Gegner, der gleich dran waere, ist betaeubt
+	var idx := c.cursor + 1
+	var target: Combat.Fighter = null
+	while idx < c.order.size():
+		if not c.order[idx].gone and c.order[idx].side == 1:
+			target = c.order[idx]
+			break
+		idx += 1
+	if target == null:
+		print("--- Betaeubung: kein Gegner mehr in dieser Runde")
+		return
+	target.stun = 1
+	var from := c._ev_id
+	var j0 := c.journal.size()
+	c.hero_pass()
+	dump(c, from, "Betaeubter Gegner wird uebersprungen (stun=1 gesetzt)")
+	print("   Journal: ", c.journal.slice(j0).map(func(d): return d["text"]))
+
+
+func _stats() -> void:
+	print("--- Zuege und Ereignisse je Kampf (auto_play, 4 Maenner Kraft 100, Etappe 3), 60 Kaempfe je Formation")
+	for form in ["draugr", "raeuber", "haendler", "dorf", "kraken"]:
+		var hero_turns := 0
+		var foe_turns := 0
+		var evn := 0
+		var evtypes := {}
+		var rounds := 0
+		var max_batch := 0
+		var wins := 0
+		var N := 60
+		for k in N:
+			var c := Combat.create(v, form, party([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE]), Foes.units_for(form, 3), 3)
+			c.begin()
+			var n := 0
+			while c.state != "done" and n < 400:
+				n += 1
+				var e0 := c._ev_id
+				if c.state == "hero":
+					hero_turns += 1
+					c.auto_hero()
+				elif c.state == "foe":
+					foe_turns += 1
+					c.act_foe()
+				max_batch = maxi(max_batch, c._ev_id - e0)
+			evn += c._ev_id
+			for ev in c.events:
+				evtypes[String(ev["type"])] = int(evtypes.get(String(ev["type"]), 0)) + 1
+			rounds += c.round_no
+			if c.result == "win":
+				wins += 1
+		print("%-8s Siege %2d/%d  Runden %.1f  Mannzuege %.1f  Gegnerzuege %.1f  Ereignisse %.1f  groesster Zug %d Ereignisse  (im Puffer: %s)" % [form, wins, N, float(rounds) / N, float(hero_turns) / N, float(foe_turns) / N, float(evn) / N, max_batch, str(evtypes)])

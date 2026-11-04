@@ -1,0 +1,182 @@
+extends SceneTree
+
+## Nur für die Analyse (Arbeitskopie "ablauf"): zeigt die vorgeschlagenen Zusatzfelder der Ereignisse (act, by, rank, tgts, hp0, hp1, lethal ...).
+
+var v: Voyage
+var seen := 0
+
+const ALL4 := [Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE]
+
+
+func _init() -> void:
+	v = Voyage.new()
+	v.auto_combat = true
+	root.add_child(v)
+	v.begin()
+	seed(9)
+	_a()
+	_b()
+	_c()
+	quit()
+
+
+func party(roles: Array) -> Array:
+	var out: Array = []
+	for i in roles.size():
+		var m := CrewMember.new()
+		m.id = 700 + i
+		m.display_name = "H%d" % i
+		m.role = roles[i]
+		m.kraft = 100.0
+		m.stress = 0.0
+		out.append(m)
+	return out
+
+
+func mk(roles: Array, units: Array, form: String = "draugr", stage: int = 1) -> Combat:
+	var u: Array[String] = []
+	for k in units:
+		u.append(String(k))
+	var c := Combat.create(v, form, party(roles), u, stage)
+	c.begin()
+	return c
+
+
+func nm(f: Combat.Fighter) -> String:
+	if f == null:
+		return "-"
+	return "%s%s" % ["H" if f.side == 0 else "F", f.name if f.side == 0 else f.kind]
+
+
+func fmt(x) -> String:
+	if x is Combat.Fighter:
+		return nm(x)
+	if x is Array:
+		return "[" + ",".join((x as Array).map(func(e): return fmt(e))) + "]"
+	if x is float:
+		return "%.0f" % x
+	return str(x)
+
+
+func dump(c: Combat, from_id: int, title: String) -> void:
+	print("--- ", title)
+	for ev in c.events:
+		if int(ev["id"]) <= from_id:
+			continue
+		var parts: Array = []
+		for k in ev:
+			if k in ["id", "type", "who", "sk", "crit", "n", "text", "round"]:
+				continue
+			parts.append("%s=%s" % [k, fmt(ev[k])])
+		print("   #%d %-8s who=%-9s r%d sk=%-13s n=%d crit=%s text='%s' | %s" % [ev["id"], ev["type"], nm(ev["who"]), int(ev["rank"]), ev["sk"], ev["n"], ev["crit"], ev["text"], " ".join(parts)])
+
+
+func until_hero(c: Combat, role: int) -> void:
+	var g := 0
+	while c.state != "done" and g < 200:
+		g += 1
+		if c.state == "foe":
+			c.act_foe()
+		elif c.actor.role == role:
+			return
+		else:
+			c.hero_pass()
+
+
+func _a() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.BOGEN, Roles.Id.AXT, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.AXT)
+	var from := c._ev_id
+	if c.can_use(c.actor, "a_ansturm"):
+		c.hero_act("a_ansturm", c.foes[0])
+		dump(c, from, "Axt (Reihe 2) a_ansturm: attack, hit, move(vor) x2, turn des Nächsten")
+	c = mk(ALL4, ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.AXT)
+	from = c._ev_id
+	c.hero_act("a_wirbel", null)
+	dump(c, from, "Axt a_wirbel (Fläche): attack mit tgts, hits mit hp0/hp1")
+	c = mk(ALL4, ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.SKALDE)
+	c.heroes[1].hp = 40.0
+	from = c._ev_id
+	c.hero_act("k_heil", c.heroes[1])
+	dump(c, from, "Skalde k_heil (Heilung mit hp0/hp1)")
+	c = mk(ALL4, ["rost", "rost"])
+	until_hero(c, Roles.Id.SKALDE)
+	from = c._ev_id
+	c.hero_act("k_krieg", null)
+	dump(c, from, "Skalde k_krieg (Stärkung aller: attack mit tgts=alle Männer, sonst nichts)")
+	c = mk(ALL4, ["rost", "rost"])
+	until_hero(c, Roles.Id.AXT)
+	c.foes[0].hp = 1.0
+	from = c._ev_id
+	c.hero_act("a_hieb", c.foes[0])
+	dump(c, from, "Axt tötet Gegner 0: hit mit lethal=true, die, move? (Nachrücken ohne Ereignis, aber row_f im turn)")
+
+
+func _b() -> void:
+	var c := mk(ALL4, ["rost", "rost"])
+	until_hero(c, Roles.Id.AXT)
+	var from := c._ev_id
+	c.hero_move(1 if c.actor.rank == 0 else 0)
+	dump(c, from, "hero_move: move x2")
+	c = mk(ALL4, ["rost", "rost"])
+	until_hero(c, Roles.Id.AXT)
+	from = c._ev_id
+	c.hero_pass()
+	dump(c, from, "hero_pass: wait")
+	# Betäubter Gegner
+	c = mk(ALL4, ["rost", "rost", "rost"])
+	var g := 0
+	while c.state == "hero" and g < 10:
+		g += 1
+		c.hero_pass()
+	var idx := c.cursor + 1
+	while idx < c.order.size():
+		if c.order[idx].side == 1 and not c.order[idx].gone:
+			c.order[idx].stun = 1
+			break
+		idx += 1
+	from = c._ev_id
+	c.act_foe()
+	dump(c, from, "Gegner handelt, der nächste Gegner ist betäubt: skip(betäubt) vor dem nächsten turn")
+
+
+func _c() -> void:
+	var c := mk(ALL4, ["brecher", "messerkerl", "schuetze", "haken"], "raeuber")
+	var g := 0
+	# Blutung erzwingen: Axt a_spalt, dann weiter bis ein Blutungstreffer erscheint
+	until_hero(c, Roles.Id.AXT)
+	c.hero_act("a_spalt", c.foes[0])
+	g = 0
+	while c.state != "done" and g < 20:
+		g += 1
+		var from := c._ev_id
+		if c.state == "foe":
+			c.act_foe()
+		else:
+			c.hero_pass()
+		var bleed := false
+		for ev in c.events:
+			if int(ev["id"]) > from and ev.has("dot"):
+				bleed = true
+		if bleed:
+			dump(c, from, "Zug mit Blutungstreffer (dot=true, eigene act-Nummer, by=null)")
+			break
+	# Kraken: Zerquetschen
+	c = mk(ALL4, ["tentakel", "kraken"], "kraken")
+	for t in c.foes.duplicate():
+		if t.kind == "tentakel":
+			c._hurt(t, 9999, null)
+	var body: Combat.Fighter = c.foes[c.foes.size() - 1]
+	body.crush_cd = 0
+	c.actor = body
+	c.state = "foe"
+	var f0 := c._ev_id
+	c.act_foe()
+	dump(c, f0, "Kraken kündigt an (text ohne attack, aber act/by)")
+	c.actor = body
+	c.state = "foe"
+	f0 = c._ev_id
+	c.act_foe()
+	dump(c, f0, "Kraken zerquetscht (attack tgts = alle Männer)")

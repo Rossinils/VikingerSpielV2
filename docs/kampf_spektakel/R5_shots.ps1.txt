@@ -1,0 +1,39 @@
+param([string]$Proj = "C:\Users\trell\OneDrive\Coding\Spielmodding\_sandbox\oberflaeche", [string]$Out = "C:\Users\trell\AppData\Local\Temp\claude\C--Users-trell-OneDrive-Coding-Spielmodding\b9528699-20e7-4c32-97e8-c2b5f3d292e6\scratchpad\r5new", [string]$Pre = "s")
+# Alle Kampf-Oberflächenzustände der Arbeitskopie fotografieren: Name | Sekunden | Flags
+$shots = @(
+	@("fight2", 4, "--shotfight2 --hovermouse=1,1"),
+	@("intro", 1.2, "--shotfight2 --hovermouse=1,1"),
+	@("pick", 3, "--shotui=pick --hovermouse=1,1"),
+	@("move", 3, "--shotui=move --hovermouse=1,1"),
+	@("foe", 3, "--shotui=foe --hovermouse=1,1"),
+	@("foeact", 3, "--shotui=foeact --hovermouse=1,1"),
+	@("stat", 3, "--shotui=stat --hovermouse=1,1"),
+	@("win", 3, "--shotui=win --hovermouse=1,1"),
+	@("lose", 3, "--shotui=lose --hovermouse=1,1"),
+	@("flee", 3, "--shotui=flee --hovermouse=1,1"),
+	@("kraken1", 3, "--shotkraken --hovermouse=1,1"),
+	@("kraken2", 3, "--shotkraken2 --hovermouse=1,1"),
+	@("heroic", 3, "--shotheroic --hovermouse=1,1"),
+	@("snap", 3, "--shotsnap --hovermouse=1,1"),
+	@("fx_bogen", 3, "--shotfx --hovermouse=1,1"),
+	@("fx_axt", 3, "--shotfx2 --hovermouse=1,1"),
+	@("fx_musket", 3, "--shotfx3 --hovermouse=1,1"),
+	@("chron", 3, "--shotui=stat --hudflag=chron --hovermouse=1,1"),
+	@("zonen", 4, "--shotfight2 --hudflag=zones --hovermouse=1,1"),
+	@("prep", 3, "--shotfight --hovermouse=1,1"),
+	@("prep3", 3, "--shotui=prep3 --hovermouse=1,1"),
+	@("kprep", 3, "--shotui=kprep --hovermouse=1,1"),
+	@("lo", 3, "--shotui=lo --hovermouse=1,1"),
+	@("lo2", 3, "--shotui=lo2 --hovermouse=1,1"),
+	@("tip_prep", 3, "--shotfight --hovermouse=120,86"),
+	@("tip_karte", 3, "--shotui=pick --hovermouse=200,280"),
+	@("tip_foe", 3, "--shotui=stat --hovermouse=268,130"),
+	@("tip_held", 3, "--shotkraken --hovermouse=100,150"),
+	@("tip_kraken", 3, "--shotkraken2 --hovermouse=408,110"),
+	@("tip_icon", 3, "--shotui=stat --hovermouse=100,207")
+)
+foreach ($s in $shots) {
+	$o = Join-Path $Out ("{0}_{1}.png" -f $Pre, $s[0])
+	$r = & "$Proj\tools\dev\shot.ps1" -Out $o -Sec $s[1] -Flags $s[2] -Proj $Proj
+	"{0}: {1}" -f $s[0], ($r -join " | ")
+}

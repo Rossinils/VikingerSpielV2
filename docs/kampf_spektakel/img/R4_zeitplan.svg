@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1110" height="474" viewBox="0 0 1110 474" font-family="Segoe UI, Arial, sans-serif">
+<rect width="1110" height="474" fill="#fbf8f1"/>
+<text x="20" y="30" font-size="19" font-weight="700" fill="#2a2118">Zeitplan einer Heldenaktion (Nahkampf, normaler Treffer): 900 ms</text>
+<text x="20" y="52" font-size="12.5" fill="#5b4f3f">Zeiten ab Aktionsbeginn. Werte sind Ausgangswerte zum Ausprobieren (Recherche R4, Abschnitt 6). Der nächste Zug startet nach 900 ms (COMBAT_PACE).</text>
+<rect x="205.0" y="68" width="190.0" height="28" fill="#e7dcc3" stroke="#fbf8f1" stroke-width="1.5"/>
+<text x="300.0" y="86" font-size="11.5" fill="#2a2118" text-anchor="middle">Fokus-Eintritt, Vorbereitung</text>
+<rect x="395.0" y="68" width="47.5" height="28" fill="#d8c59d" stroke="#fbf8f1" stroke-width="1.5"/>
+<text x="418.8" y="86" font-size="10.5" fill="#2a2118" text-anchor="middle">Schlag</text>
+<rect x="442.5" y="68" width="76.0" height="28" fill="#e6b4ad" stroke="#fbf8f1" stroke-width="1.5"/>
+<text x="480.5" y="86" font-size="10.5" fill="#2a2118" text-anchor="middle">Standbild</text>
+<rect x="518.5" y="68" width="199.5" height="28" fill="#e7dcc3" stroke="#fbf8f1" stroke-width="1.5"/>
+<text x="618.2" y="86" font-size="11.5" fill="#2a2118" text-anchor="middle">Nachschwung, Rückstoß</text>
+<rect x="718.0" y="68" width="171.0" height="28" fill="#d8c59d" stroke="#fbf8f1" stroke-width="1.5"/>
+<text x="803.5" y="86" font-size="11.5" fill="#2a2118" text-anchor="middle">Halten</text>
+<rect x="889.0" y="68" width="171.0" height="28" fill="#e7dcc3" stroke="#fbf8f1" stroke-width="1.5"/>
+<text x="974.5" y="86" font-size="11.5" fill="#2a2118" text-anchor="middle">Lösen, Übergabe</text>
+<rect x="0" y="118" width="1110" height="38" fill="#f0e9db"/>
+<text x="18" y="141" font-size="13" font-weight="600" fill="#2a2118">Kamera</text>
+<text x="18" y="179" font-size="13" font-weight="600" fill="#2a2118">Licht, Dimmung</text>
+<rect x="0" y="194" width="1110" height="38" fill="#f0e9db"/>
+<text x="18" y="217" font-size="13" font-weight="600" fill="#2a2118">Handelnder</text>
+<text x="18" y="255" font-size="13" font-weight="600" fill="#2a2118">Getroffener</text>
+<rect x="0" y="270" width="1110" height="38" fill="#f0e9db"/>
+<text x="18" y="293" font-size="13" font-weight="600" fill="#2a2118">Standbild, Wackeln</text>
+<text x="18" y="331" font-size="13" font-weight="600" fill="#2a2118">Banner, Plakette</text>
+<rect x="0" y="346" width="1110" height="38" fill="#f0e9db"/>
+<text x="18" y="369" font-size="13" font-weight="600" fill="#2a2118">Schadenszahl</text>
+<line x1="205.0" y1="118" x2="205.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="205.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">0</text>
+<line x1="300.0" y1="118" x2="300.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="300.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">100</text>
+<line x1="395.0" y1="118" x2="395.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="395.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">200</text>
+<line x1="490.0" y1="118" x2="490.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="490.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">300</text>
+<line x1="585.0" y1="118" x2="585.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="585.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">400</text>
+<line x1="680.0" y1="118" x2="680.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="680.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">500</text>
+<line x1="775.0" y1="118" x2="775.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="775.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">600</text>
+<line x1="870.0" y1="118" x2="870.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="870.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">700</text>
+<line x1="965.0" y1="118" x2="965.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="965.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">800</text>
+<line x1="1060.0" y1="118" x2="1060.0" y2="384" stroke="#c9bda4" stroke-width="1"/>
+<text x="1060.0" y="402" font-size="12" fill="#2a2118" text-anchor="middle">900</text>
+<text x="1072.0" y="402" font-size="12" fill="#2a2118">ms</text>
+<rect x="205.0" y="124" width="133.0" height="26" rx="3" fill="#3f6a94" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="271.5" y="140" font-size="11.5" fill="#fff" text-anchor="middle">Zoom 1,125</text>
+<rect x="338.0" y="124" width="551.0" height="26" rx="3" fill="#8fb0cf" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="613.5" y="140" font-size="11.5" fill="#2a2118" text-anchor="middle">gehalten, konstant (kein Kriechen)</text>
+<rect x="889.0" y="124" width="171.0" height="26" rx="3" fill="#3f6a94" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="974.5" y="140" font-size="11.5" fill="#fff" text-anchor="middle">zurück oder Schwenk</text>
+<rect x="205.0" y="162" width="133.0" height="26" rx="3" fill="#6a4f94" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="271.5" y="178" font-size="11.5" fill="#fff" text-anchor="middle">auf 55 %</text>
+<rect x="338.0" y="162" width="551.0" height="26" rx="3" fill="#b7a5d4" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="613.5" y="178" font-size="11.5" fill="#2a2118" text-anchor="middle">Unbeteiligte 55 %, Ziel 90 %, Lichtkegel am Handelnden</text>
+<rect x="889.0" y="162" width="152.0" height="26" rx="3" fill="#6a4f94" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="965.0" y="178" font-size="11.5" fill="#fff" text-anchor="middle">hebt sich</text>
+<rect x="243.0" y="200" width="152.0" height="26" rx="3" fill="#b8741f" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="319.0" y="216" font-size="11.5" fill="#fff" text-anchor="middle">Ausholen</text>
+<rect x="395.0" y="200" width="47.5" height="26" rx="3" fill="#7a4a10" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="418.8" y="216" font-size="11.5" fill="#fff" text-anchor="middle">Schlag</text>
+<rect x="442.5" y="200" width="446.5" height="26" rx="3" fill="#e3b77a" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="665.8" y="216" font-size="11.5" fill="#2a2118" text-anchor="middle">Angriffspose halten (mindestens 150 ms nach Kontakt)</text>
+<rect x="889.0" y="200" width="171.0" height="26" rx="3" fill="#b8741f" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="974.5" y="216" font-size="11.5" fill="#fff" text-anchor="middle">zurück</text>
+<rect x="442.5" y="238" width="47.5" height="26" rx="3" fill="#ffffff" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="466.2" y="254" font-size="11.5" fill="#2a2118" text-anchor="middle">weiß</text>
+<rect x="490.0" y="238" width="28.5" height="26" rx="3" fill="#d9aaa5" stroke="#6a5a43" stroke-width="0.8"/>
+<rect x="518.5" y="238" width="199.5" height="26" rx="3" fill="#b8423a" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="618.2" y="254" font-size="11.5" fill="#fff" text-anchor="middle">Rückstoß, Treffer-Pose</text>
+<rect x="718.0" y="238" width="171.0" height="26" rx="3" fill="#e0a39d" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="803.5" y="254" font-size="11.5" fill="#2a2118" text-anchor="middle">Pose steht</text>
+<rect x="889.0" y="238" width="171.0" height="26" rx="3" fill="#b8423a" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="974.5" y="254" font-size="11.5" fill="#fff" text-anchor="middle">zurück</text>
+<rect x="442.5" y="276" width="76.0" height="26" rx="3" fill="#c0392b" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="480.5" y="292" font-size="11.5" fill="#fff" text-anchor="middle">Hit-Stop</text>
+<rect x="518.5" y="276" width="190.0" height="26" rx="3" fill="#8a8a8a" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="613.5" y="292" font-size="11.5" fill="#fff" text-anchor="middle">Wackeln, Achse zuerst</text>
+<rect x="205.0" y="314" width="95.0" height="26" rx="3" fill="#8f7d1f" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="252.5" y="330" font-size="11.5" fill="#fff" text-anchor="middle">ein</text>
+<rect x="300.0" y="314" width="285.0" height="26" rx="3" fill="#d8c96a" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="442.5" y="330" font-size="11.5" fill="#2a2118" text-anchor="middle">Fertigkeitsname steht</text>
+<rect x="585.0" y="314" width="95.0" height="26" rx="3" fill="#8f7d1f" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="632.5" y="330" font-size="11.5" fill="#fff" text-anchor="middle">aus</text>
+<rect x="442.5" y="352" width="95.0" height="26" rx="3" fill="#2f7a52" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="490.0" y="368" font-size="11.5" fill="#fff" text-anchor="middle">Pop</text>
+<rect x="537.5" y="352" width="142.5" height="26" rx="3" fill="#9bd0b4" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="608.8" y="368" font-size="11.5" fill="#2a2118" text-anchor="middle">steht</text>
+<rect x="680.0" y="352" width="380.0" height="26" rx="3" fill="#2f7a52" stroke="#6a5a43" stroke-width="0.8"/>
+<text x="870.0" y="368" font-size="11.5" fill="#fff" text-anchor="middle">steigt 12 px, blendet aus (bis etwa 1050 ms)</text>
+<line x1="442.5" y1="62" x2="442.5" y2="384" stroke="#c0392b" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="448.5" y="112" font-size="12" font-weight="700" fill="#c0392b" text-anchor="start">Kontakt 250 ms</text>
+<line x1="1060.0" y1="62" x2="1060.0" y2="384" stroke="#2a2118" stroke-width="2"/>
+<text x="1054.0" y="112" font-size="12" font-weight="700" fill="#2a2118" text-anchor="end">nächster Zug 900 ms</text>
+<text x="20" y="430" font-size="12.5" fill="#2a2118">Weiße Fläche in der Spur Getroffener: weißer Treffer-Frame (50 ms), danach Zittern im Standbild. Banner und Dimmung laufen im Standbild weiter (nur die Beteiligten frieren).</text>
+<text x="20" y="450" font-size="12.5" fill="#2a2118">Gegnerzug: Kontakt bei 320 ms, Vorbereitung 240 ms, Banner 200 ms früher. Krit: Standbild 150 ms, danach Zeitlupe 0,5 für 200 ms (Takt um etwa 350 ms dehnen).</text>
+</svg>

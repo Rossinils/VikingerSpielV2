@@ -1,0 +1,140 @@
+extends RefCounted
+
+## NUR PROTOTYP (Arbeitskopie "figuren"): wie sehen gedrehte, skalierte und gescherte Pixel-Sprites aus?
+## Aufruf: --proto=rot | scale | strip | shear | zoomfig
+
+const W := 44.0
+const H := 56.0
+const BG := Color("14171e")
+const LINE := Color("3b2a1d")
+
+static var _tex: Texture2D = null
+
+
+static func _bg(h: Hud, title: String, sub: String = "") -> void:
+	h.draw_rect(Rect2(0, 0, 480, 320), BG)
+	h._t(Vector2(8, 12), title, Color("d9b24a"), 9)
+	if sub != "":
+		h._t(Vector2(8, 22), sub, Color("a3a9b0"), 7)
+
+
+## Figur mit Fußpunkt feet; pivot in Zellkoordinaten (Standard: Fußmitte); Drehung in Grad, Maßstab sc.
+static func _fig(h: Hud, tex: Texture2D, row: int, col: int, feet: Vector2, rot_deg: float = 0.0, sc: Vector2 = Vector2.ONE, pivot: Vector2 = Vector2(22, 52), tint: Color = Color.WHITE) -> void:
+	var q := feet + (pivot - Vector2(22, 52)) * sc  # der Pivot sitzt bei feet + (pivot - Fuß) * sc
+	h.draw_set_transform(q, deg_to_rad(rot_deg), sc)
+	h.draw_texture_rect_region(tex, Rect2(-pivot.x, -pivot.y, W, H), Rect2(float(col) * W, float(row) * H, W, H), tint)
+	h.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Scherung in Zeilenbändern: jedes Band wird um ganze Pixel verschoben, nichts wird gedreht (pixelscharf).
+static func _shear(h: Hud, tex: Texture2D, row: int, col: int, feet: Vector2, lean_px: float, band: int = 2, tint: Color = Color.WHITE) -> void:
+	var y := 0
+	while y < int(H):
+		var bh := mini(band, int(H) - y)
+		var up := (52.0 - float(y) - float(bh) * 0.5) / 52.0  # 0 an den Füßen, 1 oben
+		var dx := roundf(lean_px * maxf(up, 0.0) * maxf(up, 0.0) * 1.0 + lean_px * maxf(up, 0.0) * 0.0)
+		h.draw_texture_rect_region(tex, Rect2(feet.x - 22.0 + dx, feet.y - 52.0 + float(y), W, float(bh)), Rect2(float(col) * W, float(row) * H + float(y), W, float(bh)), tint)
+		y += bh
+
+
+static func draw(h: Hud, mode: String) -> void:
+	if (load("res://scripts/proto_rig.gd") as GDScript).call("draw_b", h, mode):
+		return
+	if _tex == null:  # die Textur muss am Leben bleiben, solange die Zeichenbefehle sie brauchen
+		_tex = load("res://assets/combat.png") as Texture2D
+	var tex := _tex
+	match mode:
+		"dbg":
+			h.draw_rect(Rect2(0, 0, 480, 320), BG)
+			h.draw_texture_rect_region(tex, Rect2(10, 10, 44, 56), Rect2(0, 56, 44, 56), Color.WHITE)
+			h.draw_texture_rect_region(tex, Rect2(70, 10, 44, 56), Rect2(44.0 * 0.0, 56.0 * 1.0, W, H), Color.WHITE)
+			h.draw_set_transform(Vector2(150, 60), 0.0, Vector2.ONE)
+			h.draw_texture_rect_region(tex, Rect2(0, -50, 44, 56), Rect2(0, 56, 44, 56), Color.WHITE)
+			h.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			_fig(h, tex, 1, 0, Vector2(220, 60))
+			_fig(h, tex, 1, 0, Vector2(290, 60), 10.0)
+			h.draw_texture(tex, Vector2(340, 10))
+		"rot":
+			_bg(h, "Drehung um die Fuesse (Lehnen), 44x56-Sprites, Pixel-Snap AN", "Winkel in Grad; oben Axt (Idle), Mitte Schild (Angriff), unten Rost-Draugr (Angriff)")
+			var angs := [0.0, 4.0, 8.0, 12.0, 20.0, 35.0]
+			for i in angs.size():
+				var fx := 40.0 + float(i) * 75.0
+				_fig(h, tex, 1, 0, Vector2(fx, 100), float(angs[i]))
+				h._t(Vector2(fx - 20, 110), "%d Grad" % int(angs[i]), Color("e6e0cc"), 7, HORIZONTAL_ALIGNMENT_CENTER, 40)
+				_fig(h, tex, 0, 2, Vector2(fx, 190), -float(angs[i]) * 0.5)
+				_fig(h, tex, 5, 2, Vector2(fx, 280), float(angs[i]) * -1.0)
+			for yy in [100, 190, 280]:
+				h.draw_rect(Rect2(0, float(yy) + 1, 480, 1), LINE)
+		"scale":
+			_bg(h, "Skalierung (Nearest), Fuesse unten, Pixel-Snap AN", "1x, 1,25x, 1,5x, 2x, 3x der Axt, Angriffs- und Standpose")
+			var scs := [1.0, 1.25, 1.5, 2.0, 3.0]
+			var x := 14.0
+			for s in scs:
+				var ss: float = s
+				var fx2 := x + 22.0 * ss
+				_fig(h, tex, 1, 0, Vector2(fx2, 300), 0.0, Vector2(ss, ss))
+				h._t(Vector2(fx2 - 20, 312), "%.2fx" % ss, Color("e6e0cc"), 7, HORIZONTAL_ALIGNMENT_CENTER, 40)
+				x += 44.0 * ss + 6.0
+			h.draw_rect(Rect2(0, 301, 480, 1), LINE)
+		"squash":
+			_bg(h, "Stauchen und Strecken (Nicht-uniform), Pixel-Snap AN", "1,0/1,0  1,12/0,88  0,88/1,12  1,25/0,8  0,8/1,25  und 2x2")
+			var pairs := [Vector2(1, 1), Vector2(1.12, 0.88), Vector2(0.88, 1.12), Vector2(1.25, 0.8), Vector2(0.8, 1.25)]
+			for i in pairs.size():
+				var fx3 := 45.0 + float(i) * 80.0
+				_fig(h, tex, 2, 1, Vector2(fx3, 110), 0.0, pairs[i])
+				_fig(h, tex, 3, 0, Vector2(fx3, 210), 0.0, pairs[i])
+				_fig(h, tex, 9, 2, Vector2(fx3, 300), 0.0, pairs[i])
+			for yy in [110, 210, 300]:
+				h.draw_rect(Rect2(0, float(yy) + 1, 480, 1), LINE)
+		"shear":
+			_bg(h, "Scherung in Zeilenbaendern: ganze Pixel, nichts gedreht", "oben Axt, Mitte Skalde, unten Rost: Lehnen 0 / 2 / 4 / 6 / 8 / 12 Pixel am Kopf (Baender zu 2 Zeilen)")
+			var lp := [0.0, 2.0, 4.0, 6.0, 8.0, 12.0]
+			for i in lp.size():
+				var fx4 := 40.0 + float(i) * 75.0
+				_shear(h, tex, 1, 0, Vector2(fx4, 100), float(lp[i]))
+				_shear(h, tex, 3, 0, Vector2(fx4, 190), -float(lp[i]))
+				_shear(h, tex, 5, 2, Vector2(fx4, 280), -float(lp[i]), 4)
+				h._t(Vector2(fx4 - 20, 110), "%d px" % int(lp[i]), Color("e6e0cc"), 7, HORIZONTAL_ALIGNMENT_CENTER, 40)
+			for yy in [100, 190, 280]:
+				h.draw_rect(Rect2(0, float(yy) + 1, 480, 1), LINE)
+		"strip":
+			_bg(h, "Prozedurale Animation eines Axthiebs aus EINEM Bild (Weg A)", "Ausholen / Schlag / Nachschwung / Rueckkehr; Nachbilder und Aufblitzen. Pose 'Angriff' ist am Zellrand abgeschnitten")
+			# sechs Phasen: [Spalte, dx, Drehung, sx, sy, Tint, Nachbilder]
+			var ph := [
+				[0, 0.0, 0.0, 1.0, 1.0, Color.WHITE, 0],
+				[0, -5.0, -9.0, 0.96, 1.06, Color.WHITE, 0],
+				[2, 8.0, 14.0, 1.12, 0.92, Color(1.5, 1.4, 1.2), 3],
+				[2, 12.0, 20.0, 1.06, 0.96, Color.WHITE, 2],
+				[2, 8.0, 9.0, 1.0, 1.0, Color.WHITE, 0],
+				[1, 0.0, 0.0, 1.0, 1.0, Color.WHITE, 0],
+			]
+			var labels := ["Stehen", "Ausholen", "Schlag", "Nachschwung", "Abfangen", "Stehen"]
+			for i in ph.size():
+				var p: Array = ph[i]
+				var fx5 := 40.0 + float(i) * 76.0
+				var feet := Vector2(fx5 + float(p[1]), 110)
+				var ng := int(p[6])
+				for g in range(ng, 0, -1):
+					var back := Vector2(float(g) * -7.0, 0)
+					_fig(h, tex, 1, int(p[0]), feet + back, float(p[2]) - float(g) * 4.0, Vector2(float(p[3]), float(p[4])), Vector2(22, 52), Color(0.9, 0.7, 0.4, 0.22 + 0.04 * float(ng - g)))
+				_fig(h, tex, 1, int(p[0]), feet, float(p[2]), Vector2(float(p[3]), float(p[4])), Vector2(22, 52), p[5])
+				h._t(Vector2(fx5 - 24, 128), String(labels[i]), Color("e6e0cc"), 7, HORIZONTAL_ALIGNMENT_CENTER, 48)
+			h.draw_rect(Rect2(0, 111, 480, 1), LINE)
+			h._t(Vector2(8, 150), "Dieselbe Folge mit Zeilenband-Scherung statt Drehung:", Color("a3a9b0"), 7)
+			var ph2 := [
+				[0, 0.0, 0.0, 1.0, 1.0],
+				[0, -5.0, -5.0, 1.0, 1.0],
+				[2, 8.0, 7.0, 1.0, 1.0],
+				[2, 12.0, 10.0, 1.0, 1.0],
+				[2, 8.0, 4.0, 1.0, 1.0],
+				[1, 0.0, 0.0, 1.0, 1.0],
+			]
+			for i in ph2.size():
+				var q: Array = ph2[i]
+				var fx6 := 40.0 + float(i) * 76.0
+				var feet2 := Vector2(fx6 + float(q[1]), 230)
+				if i == 2 or i == 3:
+					for g2 in range(2 if i == 2 else 1, 0, -1):
+						_shear(h, tex, 1, int(q[0]), feet2 + Vector2(float(g2) * -7.0, 0), float(q[2]) - float(g2) * 2.0, 2, Color(0.9, 0.7, 0.4, 0.25))
+				_shear(h, tex, 1, int(q[0]), feet2, float(q[2]), 2, Color(1.5, 1.4, 1.2) if i == 2 else Color.WHITE)
+			h.draw_rect(Rect2(0, 231, 480, 1), LINE)

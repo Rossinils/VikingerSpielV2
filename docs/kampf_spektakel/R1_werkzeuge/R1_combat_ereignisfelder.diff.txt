@@ -1,0 +1,276 @@
+--- Vikingerspiel_v2/scripts/combat.gd	2026-11-02 22:22:32.185107500 +0100
++++ _sandbox/ablauf/scripts/combat.gd	2026-11-03 16:58:37.200266000 +0100
+@@ -176,11 +176,28 @@
+ 		foes[i].rank = i
+ 
+ 
+-func _event(type: String, who: Fighter, n: int = 0, crit: bool = false, text: String = "") -> void:
++var _act := 0  # Nummer der laufenden Handlung: alle Ereignisse einer Handlung tragen dieselbe
++var _act_by: Fighter = null  # wer handelt (null: Blutung, Runde, Zustand)
++
++
++## Eine neue Handlung beginnt (Fertigkeit, Haltezug, Blutung ...): ab jetzt tragen die Ereignisse die neue Nummer.
++func _begin_act(by: Fighter) -> void:
++	_act += 1
++	_act_by = by
++
++
++## Meldet ein Ereignis. Zusatzfelder in extra überschreiben die Standardfelder (z. B. "rank"). Gibt das Ereignis zurück,
++## damit Felder, die erst nach der Wirkung feststehen (hp1, lethal), nachgetragen werden können.
++func _event(type: String, who: Fighter, n: int = 0, crit: bool = false, text: String = "", extra: Dictionary = {}) -> Dictionary:
+ 	_ev_id += 1
+-	events.append({"id": _ev_id, "type": type, "who": who, "n": n, "crit": crit, "sk": _cur_sid, "text": text})
++	var ev := {"id": _ev_id, "type": type, "who": who, "n": n, "crit": crit, "sk": _cur_sid, "text": text,
++		"act": _act, "by": _act_by, "rank": who.rank, "round": round_no}
++	for k in extra:
++		ev[k] = extra[k]
++	events.append(ev)
+ 	if events.size() > 150:
+ 		events.pop_front()
++	return ev
+ 
+ 
+ func _log(text: String, kind: int = 0) -> void:
+@@ -214,6 +231,7 @@
+ 
+ 
+ func _end_round() -> void:
++	_begin_act(null)
+ 	for f in order:
+ 		f.mark = maxi(f.mark - 1, 0)
+ 		f.guard = maxi(f.guard - 1, 0)
+@@ -264,6 +282,7 @@
+ 		all_foes.append(t)
+ 		_renumber()
+ 		_log("Ein neuer Fangarm bricht aus dem Wasser.", 2)
++		_begin_act(null)
+ 		_event("spawn", t)
+ 
+ 
+@@ -300,8 +319,12 @@
+ 		if f.bleed_turns > 0:
+ 			f.bleed_turns -= 1
+ 			_log("%s blutet (−%d)." % [f.name, roundi(f.bleed_dmg)], 2 if f.side == 0 else 1)
+-			_event("hit", f, roundi(f.bleed_dmg))
++			_begin_act(null)
++			var bev := _event("hit", f, roundi(f.bleed_dmg), false, "", {"dot": true, "hp0": f.hp})
+ 			_hurt(f, roundi(f.bleed_dmg), null)
++			bev["hp1"] = maxf(f.hp, 0.0)
++			bev["lethal"] = f.gone
++			bev["door"] = f.door
+ 			if _check_end():
+ 				return
+ 			if f.gone:
+@@ -310,6 +333,7 @@
+ 			f.stun -= 1
+ 			f.stun_immune = 1
+ 			_log("%s ist betäubt und setzt aus." % f.name, 2 if f.side == 0 else 1)
++			_event("skip", f, 0, false, "betäubt")
+ 			if f.charge:
+ 				f.charge = false
+ 				_log("Der Kraken verliert den Schwung: das Zerquetschen misslingt.", 1)
+@@ -322,22 +346,26 @@
+ 				f.held_by = null
+ 			else:
+ 				_log("%s hängt im Griff und kann sich nicht rühren." % f.name, 2)
++				_event("skip", f, 0, false, "Griff")
+ 				continue
+ 		actor = f
+ 		if f.side == 0:
+ 			if f.panic > 0:
+ 				f.panic -= 1
+ 				_log("%s ist vor Schreck wie gelähmt und setzt aus." % f.name, 2)
++				_event("skip", f, 0, false, "Schreck")
+ 				continue
+ 			if f.man != null and f.man.afflicted and f.man.affliction == CrewMember.Affliction.BERSERK and heroes.size() >= 2 and randf() < RAGE_CHANCE:
+ 				_rage(f)
+ 				continue
+ 			if f.man != null and f.man.afflicted and f.man.affliction == CrewMember.Affliction.VERZAGT and randf() < 0.3:
+ 				_log("%s zögert und verliert seinen Zug (verzagt)." % f.name, 2)
++				_event("skip", f, 0, false, "verzagt")
+ 				continue
+ 			state = "hero"
+ 		else:
+ 			state = "foe"
++		_event("turn", f, round_no, false, state, {"row_h": heroes.duplicate(), "row_f": foes.duplicate()})
+ 		return
+ 	state = "done"
+ 	result = "lose"
+@@ -480,7 +508,8 @@
+ func hero_move(to_rank: int) -> bool:
+ 	if state != "hero" or actor == null or to_rank < 0 or to_rank >= heroes.size() or to_rank == actor.rank:
+ 		return false
+-	_swap(heroes, actor.rank, to_rank)
++	_begin_act(actor)
++	_swap(heroes, actor.rank, to_rank, "tausch")
+ 	_log("%s wechselt auf Reihe %d." % [actor.name, actor.rank + 1])
+ 	_next_actor()
+ 	return true
+@@ -490,6 +519,8 @@
+ 	if state != "hero":
+ 		return false
+ 	_log("%s wartet." % actor.name)
++	_begin_act(actor)
++	_event("wait", actor)
+ 	_next_actor()
+ 	return true
+ 
+@@ -505,11 +536,15 @@
+ 	return true
+ 
+ 
+-func _swap(arr: Array[Fighter], a: int, b: int) -> void:
+-	var tmp := arr[a]
+-	arr[a] = arr[b]
+-	arr[b] = tmp
++## Zwei Kämpfer tauschen die Reihe. why: tausch, vorrücken, vor, zurück, pull, push (nur für die Anzeige).
++func _swap(arr: Array[Fighter], a: int, b: int, why: String = "") -> void:
++	var fa := arr[a]
++	var fb := arr[b]
++	arr[a] = fb
++	arr[b] = fa
+ 	_renumber()
++	_event("move", fa, b, false, why, {"rank": a})
++	_event("move", fb, a, false, why, {"rank": b})
+ 
+ 
+ # --- Aktionen der Gegner ----------------------------------------------------------------
+@@ -519,6 +554,8 @@
+ 		return false
+ 	var f := actor
+ 	if _foe_flees(f):
++		_begin_act(f)
++		_event("flee", f)
+ 		foes.erase(f)
+ 		f.gone = true
+ 		fled += 1
+@@ -543,10 +580,12 @@
+ 			options.append([sid, int(pair[1])])
+ 	if options.is_empty():
+ 		# nichts zu tun: eine Reihe vorrücken, sonst warten
++		_begin_act(f)
+ 		if f.rank > 0:
+-			_swap(foes, f.rank, f.rank - 1)
++			_swap(foes, f.rank, f.rank - 1, "vorrücken")
+ 			_log("%s rückt vor." % f.name)
+ 		else:
++			_event("wait", f)
+ 			_log("%s wartet." % f.name)
+ 		_next_actor()
+ 		return true
+@@ -580,6 +619,7 @@
+ 	if f.crush_cd <= 0:
+ 		f.charge = true
+ 		_log("Der Kraken spannt seine Arme um das Schiff! Im nächsten Zug zerquetscht er das Deck. Ein Betäubter kann es nicht.", 2)
++		_begin_act(f)
+ 		_event("text", f, 0, false, "spannt sich!")
+ 		return true
+ 	f.crush_cd -= 1
+@@ -591,7 +631,8 @@
+ 	var m := h.holding
+ 	h.hold_left -= 1
+ 	_cur_sid = "f_kr_wuerg"
+-	_event("attack", h)
++	_begin_act(h)
++	_event("attack", h, 0, false, "", {"tgts": [m], "tgt": "hero"})
+ 	if h.hold_left <= 0:
+ 		_cur_sid = ""
+ 		if overboard.size() >= OVERBOARD_MAX:
+@@ -602,8 +643,11 @@
+ 		return
+ 	var dmg := maxi(roundi(randf_range(h.dmg_lo, h.dmg_hi) * dmg_mult * 0.5), 1)
+ 	_log("%s presst %s: −%d" % [h.name, m.name, dmg], 2)
+-	_event("hit", m, dmg, false)
++	var pev := _event("hit", m, dmg, false, "", {"hp0": m.hp})
+ 	_hurt(m, dmg, h)
++	pev["hp1"] = maxf(m.hp, 0.0)
++	pev["lethal"] = m.gone
++	pev["door"] = m.door
+ 	_cur_sid = ""
+ 
+ 
+@@ -686,7 +730,20 @@
+ 		att.uses[sid] = int(att.uses.get(sid, 0)) + 1
+ 	var good := 1 if att.side == 0 else 2
+ 	_cur_sid = sid
+-	_event("attack", att)
++	_begin_act(att)
++	var aimed: Array = []  # wen die Fertigkeit anvisiert (für die Anzeige: Kamera, Licht, Zielmarken)
++	match String(sk["tgt"]):
++		"foe", "hero", "ally", "fally":
++			aimed = [target]
++		"foes":
++			aimed = targets(att, sid)
++		"heroes", "allies":
++			aimed = heroes.duplicate()
++		"fallies":
++			aimed = foes.duplicate()
++		_:
++			aimed = [att]
++	_event("attack", att, 0, false, "", {"tgts": aimed, "tgt": String(sk["tgt"])})
+ 	if (sk["fx"] as Dictionary).has("fire"):
+ 		att.loaded = false
+ 	match String(sk["tgt"]):
+@@ -719,7 +776,7 @@
+ 		var to_rank := att.rank + int(fx["move"])
+ 		var list: Array[Fighter] = heroes if att.side == 0 else foes
+ 		if to_rank >= 0 and to_rank < list.size() and to_rank != att.rank:
+-			_swap(list, att.rank, to_rank)
++			_swap(list, att.rank, to_rank, "vor" if int(fx["move"]) < 0 else "zurück")
+ 	_cur_sid = ""
+ 
+ 
+@@ -743,8 +800,13 @@
+ 	var fx: Dictionary = sk["fx"]
+ 	if dmg > 0:
+ 		_log("  trifft %s: −%d%s" % [def.name, dmg, " (kritisch!)" if crit else ""], 1 if def.side == 1 else 2)
+-		_event("hit", def, dmg, crit)
++		var was_door := def.door
++		var hev := _event("hit", def, dmg, crit, "", {"hp0": def.hp})
+ 		_hurt(def, dmg, att)
++		hev["hp1"] = maxf(def.hp, 0.0)
++		hev["lethal"] = def.gone
++		hev["door"] = def.door  # steht jetzt an der Schwelle (nur Männer)
++		hev["resist"] = was_door and not def.gone  # Todesstoß überstanden
+ 		if def.side == 0 and not def.gone:
+ 			if crit:
+ 				_stress(def, 10.0)
+@@ -770,10 +832,10 @@
+ 		def.mark = maxi(def.mark, int(fx["mark"]))
+ 		_log("  %s ist markiert." % def.name, 1)
+ 	if fx.has("pull") and def.side == 0 and def.rank > 0:
+-		_swap(heroes, def.rank, 0)
++		_swap(heroes, def.rank, 0, "pull")
+ 		_log("  %s wird nach vorn gezerrt." % def.name, 2)
+ 	if fx.has("push") and def.side == 0 and def.rank < heroes.size() - 1:
+-		_swap(heroes, def.rank, def.rank + 1)
++		_swap(heroes, def.rank, def.rank + 1, "push")
+ 		_log("  %s wird nach hinten gestoßen." % def.name, 2)
+ 	if fx.has("grab") and def.side == 0 and att.holding == null and def.held_by == null and overboard.size() < OVERBOARD_MAX:
+ 		def.held_by = att
+@@ -812,11 +874,12 @@
+ 		_summon(att, String(fx["summon"]))
+ 	if fx.has("heal"):
+ 		var amount := roundi(float(fx["heal"]) * (1.0 if t.side == 0 else _hp_scale))
++		var heal_from := t.hp
+ 		t.hp = minf(t.hp + float(amount), t.hp_max)
+ 		if t.hp > 0.0:
+ 			t.door = false
+ 		_sync(t)
+-		_event("heal", t, amount)
++		_event("heal", t, amount, false, "", {"hp0": heal_from, "hp1": t.hp})
+ 		_log("%s: %s heilt %s (Kraft +%d)." % [att.name, sk["name"], t.name, amount], 1 if att.side == 0 else 2)
+ 	if fx.has("stress_heal") and t.side == 0:
+ 		_stress(t, -float(fx["stress_heal"]))
+@@ -973,9 +1036,10 @@
+ 		return
+ 	var v := victims[randi() % victims.size()]
+ 	_log("%s rastet aus und schlägt %s!" % [f.name, v.name], 2)
++	_begin_act(f)
+ 	_event("text", f, 0, false, "rastet aus!")
+ 	_cur_sid = sid
+-	_event("attack", f)
++	_event("attack", f, 0, false, "", {"tgts": [v], "tgt": "foe", "friendly": true})
+ 	_strike(f, Roles.skill(sid), v)
+ 	_cur_sid = ""
+ 	_stress(v, 4.0)

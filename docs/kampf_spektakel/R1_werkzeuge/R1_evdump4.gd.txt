@@ -1,0 +1,207 @@
+extends SceneTree
+
+## Nur für die Analyse (Arbeitskopie "ablauf"): prüft, was KEIN Ereignis bekommt, und misst das Tempo des Voyage-Taktgebers.
+
+var v: Voyage
+
+
+func _init() -> void:
+	v = Voyage.new()
+	v.auto_combat = true
+	root.add_child(v)
+	v.begin()
+	seed(5)
+	_silent()
+	_ranks()
+	_pacing()
+	_gap()
+	quit()
+
+
+func party(roles: Array) -> Array:
+	var out: Array = []
+	for i in roles.size():
+		var m := CrewMember.new()
+		m.id = 700 + i
+		m.display_name = "H%d" % i
+		m.role = roles[i]
+		m.kraft = 100.0
+		m.stress = 0.0
+		out.append(m)
+	return out
+
+
+func mk(roles: Array, units: Array, form: String = "draugr", stage: int = 1) -> Combat:
+	var u: Array[String] = []
+	for k in units:
+		u.append(String(k))
+	var c := Combat.create(v, form, party(roles), u, stage)
+	c.begin()
+	return c
+
+
+func nm(f: Combat.Fighter) -> String:
+	if f == null:
+		return "-"
+	return "%s%s(r%d)" % ["H" if f.side == 0 else "F", f.name if f.side == 0 else f.kind, f.rank]
+
+
+const ALL4 := [Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE]
+
+
+func _silent() -> void:
+	print("=== 1. Züge ohne Ereignis")
+	# betäubter Gegner
+	var c := mk(ALL4, ["rost", "rost", "rost"])
+	var g := 0
+	while c.state == "hero" and g < 10:
+		g += 1
+		c.hero_pass()
+	# jetzt ist ein Gegner dran; wir setzen den nächsten Gegner der Ordnung auf betäubt
+	var idx := c.cursor + 1
+	var tgt: Combat.Fighter = null
+	while idx < c.order.size():
+		if c.order[idx].side == 1 and not c.order[idx].gone:
+			tgt = c.order[idx]
+			break
+		idx += 1
+	var e0 := c._ev_id
+	var j0 := c.journal.size()
+	var jt := c.journal.size()
+	if tgt != null:
+		tgt.stun = 1
+	var who0 := nm(c.actor)
+	c.act_foe()
+	print("  Gegner %s handelt; danach actor=%s; neue Ereignisse: %d" % [who0, nm(c.actor), c._ev_id - e0])
+	print("  Journal-Zeilen (neu): ", c.journal.slice(maxi(c.journal.size() - 4, 0)).map(func(d): return d["text"]))
+	# Panik: Held setzt aus
+	c = mk(ALL4, ["rost", "rost"])
+	c.heroes[1].panic = 1
+	var e1 := c._ev_id
+	var g2 := 0
+	var skipped := false
+	while c.state != "done" and g2 < 20:
+		g2 += 1
+		var jb := c.journal.size()
+		if c.state == "foe":
+			c.act_foe()
+		else:
+			c.hero_pass()
+		for i in range(maxi(jb - 0, 0), c.journal.size()):
+			pass
+		for jl in c.journal:
+			if String(jl["text"]).contains("vor Schreck"):
+				skipped = true
+		if skipped:
+			break
+	print("  Panik-Zug übersprungen: ", skipped, "; Ereignistypen im Puffer: ", c.events.map(func(d): return d["type"]))
+	# Vorrücken
+	c = mk(ALL4, ["rost", "bogner"])
+	c.foes[0].gone = true
+	c.foes.erase(c.foes[0])
+	c._renumber()
+	g2 = 0
+	while c.state != "done" and g2 < 20:
+		g2 += 1
+		if c.state == "foe":
+			var er := c.foes[0].rank
+			var kb := c._ev_id
+			var skills_ok := false
+			for pair in c.actor.skills:
+				if c.can_use(c.actor, String(pair[0])):
+					skills_ok = true
+			c.act_foe()
+			if not skills_ok:
+				print("  Gegner ohne Option (rückt vor/wartet): neue Ereignisse %d" % [c._ev_id - kb])
+				break
+		else:
+			c.hero_pass()
+
+
+func _ranks() -> void:
+	print("=== 2. Reihen im Augenblick des Ereignisses und danach")
+	# Ansturm: Axt auf Reihe 2 rückt vor
+	var c := mk([Roles.Id.SCHILD, Roles.Id.BOGEN, Roles.Id.AXT, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	var g := 0
+	while c.state != "done" and g < 100:
+		g += 1
+		if c.state == "foe":
+			c.act_foe()
+		elif c.actor.role == Roles.Id.AXT and c.can_use(c.actor, "a_ansturm"):
+			break
+		else:
+			c.hero_pass()
+	if c.state == "hero" and c.actor.role == Roles.Id.AXT:
+		var att := c.actor
+		var r_before := att.rank
+		var foe0 := c.foes[0]
+		var from := c._ev_id
+		c.hero_act("a_ansturm", foe0)
+		print("  a_ansturm: Angreifer Reihe vorher %d, nachher %d; Ereignisse:" % [r_before, att.rank])
+		for ev in c.events:
+			if int(ev["id"]) > from:
+				print("     #%d %s who=%s (aktuelle Reihe jetzt %d)" % [ev["id"], ev["type"], nm(ev["who"]), (ev["who"] as Combat.Fighter).rank])
+		print("     hero-Reihenfolge jetzt: ", c.heroes.map(func(f): return f.name + "r" + str(f.rank)))
+	else:
+		print("  (kein Ansturm-Zug erreicht)")
+	# Tod rückt Nachfolger vor
+	c = mk(ALL4, ["rost", "bogner", "totenwart"])
+	var f0 := c.foes[0]
+	var f1 := c.foes[1]
+	var rk1 := f1.rank
+	c._hurt(f0, 9999, null)
+	print("  nach Tod von Reihe 0: der Gegner dahinter hatte Reihe %d, jetzt %d; der Gefallene hat noch Reihe %d (gone=%s)" % [rk1, f1.rank, f0.rank, f0.gone])
+
+
+func _pacing() -> void:
+	print("=== 3. Takt von Voyage im Handbetrieb (ohne Anzeige; Bildrate 60/s)")
+	var vv := Voyage.new()
+	vv.auto_combat = false
+	root.add_child(vv)
+	vv.begin()
+	vv.stage = 3
+	vv._enc_pending = Encounters.Id.HAENDLER
+	vv._advance()
+	vv.decide_encounter(0)
+	vv.fight_begin()
+	var c := vv.combat
+	print("  nach fight_begin: _combat_t = %.2f (COMBAT_PACE %.2f), state=%s, actor=%s" % [vv._combat_t, Voyage.COMBAT_PACE, c.state, nm(c.actor)])
+	var t := 0.0
+	var dt := 1.0 / 60.0
+	var last_act := 0.0
+	var log_n := 0
+	var hero_acts := 0
+	while t < 40.0 and c.state != "done" and log_n < 14:
+		if c.state == "hero":
+			# der Mann denkt 0 s nach und handelt sofort
+			var before := t
+			c.auto_hero()
+			vv._combat_t = Voyage.COMBAT_PACE  # wie combat_act es täte
+			hero_acts += 1
+			print("  t=%5.2f  Mann handelt (Zug folgt: %s), Takt gesetzt auf %.2f" % [t, c.state, vv._combat_t])
+			log_n += 1
+			continue
+		var st := c.state
+		vv._tick_combat(dt)
+		t += dt
+		if c.state != st or c.actor != null and false:
+			pass
+		# Gegner hat gehandelt, wenn _combat_t wieder auf PACE sprang
+		if vv._combat_t > Voyage.COMBAT_PACE - 0.001 and st == "foe":
+			print("  t=%5.2f  Gegner handelt; Abstand zum letzten Zug %.2f s" % [t, t - last_act])
+			last_act = t
+			log_n += 1
+	vv.queue_free()
+
+
+func _gap() -> void:
+	print("=== 4. Was passiert mit einem Zusatzwert aus _slow(), wenn der nächste Mann sofort handelt?")
+	var vv := Voyage.new()
+	vv.auto_combat = false
+	root.add_child(vv)
+	vv.begin()
+	vv._combat_t = 2.4  # Zusatzwert aus _slow(2.4) nach Heldenmut
+	# Der nächste Mann handelt: combat_act setzt den Takt hart auf COMBAT_PACE
+	vv._combat_t = Voyage.COMBAT_PACE
+	print("  _combat_t nach nachfolgender Heldenhandlung: %.2f (der Zusatzwert ist weg)" % vv._combat_t)
+	vv.queue_free()

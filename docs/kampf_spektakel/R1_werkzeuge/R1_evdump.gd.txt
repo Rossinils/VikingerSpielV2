@@ -1,0 +1,338 @@
+extends SceneTree
+
+## Nur für die Analyse (Arbeitskopie "ablauf"): druckt die Ereignisse einzelner Kampfhandlungen, damit der Katalog stimmt.
+
+var v: Voyage
+var seen := 0
+
+
+func _init() -> void:
+	v = Voyage.new()
+	v.auto_combat = true
+	root.add_child(v)
+	v.begin()
+	seed(7)
+	_s_single_and_aoe()
+	_s_support()
+	_s_kill_and_end()
+	_s_dots_and_skips()
+	_s_kraken()
+	_s_misc()
+	quit()
+
+
+func party(roles: Array) -> Array:
+	var out: Array = []
+	for i in roles.size():
+		var m := CrewMember.new()
+		m.id = 700 + i
+		m.display_name = "H%d" % i
+		m.role = roles[i]
+		m.kraft = 100.0
+		m.stress = 0.0
+		out.append(m)
+	return out
+
+
+func mk(roles: Array, units: Array, form: String = "draugr", stage: int = 1) -> Combat:
+	var u: Array[String] = []
+	for k in units:
+		u.append(String(k))
+	var c := Combat.create(v, form, party(roles), u, stage)
+	c.begin()
+	seen = 0
+	return c
+
+
+func nm(f: Combat.Fighter) -> String:
+	if f == null:
+		return "-"
+	return "%s%s(r%d)" % ["H" if f.side == 0 else "F", f.name if f.side == 0 else f.kind, f.rank]
+
+
+func dump(c: Combat, title: String) -> void:
+	print("--- ", title, "  [state=", c.state, " actor=", nm(c.actor), " runde=", c.round_no, "]")
+	for ev in c.events:
+		if int(ev["id"]) <= seen:
+			continue
+		seen = int(ev["id"])
+		print("   #%d %-9s who=%-16s sk=%-14s n=%d crit=%s text='%s'" % [ev["id"], ev["type"], nm(ev["who"]), ev["sk"], ev["n"], ev["crit"], ev["text"]])
+
+
+## Spielt, bis der gewünschte Mann dran ist (Gegner handeln, andere Männer warten).
+func until_hero(c: Combat, role: int) -> bool:
+	var g := 0
+	while c.state != "done" and g < 200:
+		g += 1
+		if c.state == "foe":
+			c.act_foe()
+		elif c.actor.role == role:
+			return true
+		else:
+			c.hero_pass()
+	return false
+
+
+func _s_single_and_aoe() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.AXT)
+	c.events.clear()
+	seen = 0
+	c._ev_id = 0
+	c.hero_act("a_hieb", c.foes[0])
+	dump(c, "Axt a_hieb auf Gegner 0 (Einzelziel); danach ist der naechste Zug bestimmt")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.AXT)
+	seen = c._ev_id
+	c.hero_act("a_wirbel", null)
+	dump(c, "Axt a_wirbel (Flaeche, Reihen 0+1)")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.BOGEN)
+	seen = c._ev_id
+	c.hero_act("b_regen", null)
+	dump(c, "Bogen b_regen (alle Gegner)")
+
+
+func _s_support() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.SKALDE)
+	c.heroes[1].hp = 40.0
+	seen = c._ev_id
+	c.hero_act("k_heil", c.heroes[1])
+	dump(c, "Skalde k_heil auf Mann 1 (Heilung)")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.SKALDE)
+	seen = c._ev_id
+	c.hero_act("k_krieg", null)
+	dump(c, "Skalde k_krieg (alle Maenner staerken)")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.SCHILD)
+	seen = c._ev_id
+	c.hero_act("s_deckung", c.heroes[1])
+	dump(c, "Schild s_deckung auf Mann 1 (Schutz fuer Verbuendeten)")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost", "bogner", "totenwart"])
+	until_hero(c, Roles.Id.SKALDE)
+	seen = c._ev_id
+	c.hero_act("k_hohn", null)
+	dump(c, "Skalde k_hohn (alle Gegner markieren, dmg 0, acc 100)")
+
+
+func _s_kill_and_end() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost"])
+	until_hero(c, Roles.Id.AXT)
+	c.foes[0].hp = 1.0
+	seen = c._ev_id
+	c.hero_act("a_hieb", c.foes[0])
+	dump(c, "Axt toetet Gegner 0 (Nachrueckreihen)")
+	c.foes[0].hp = 1.0
+	var g := 0
+	while c.state != "done" and g < 40:
+		g += 1
+		if c.state == "foe":
+			c.act_foe()
+		elif c.actor.role == Roles.Id.AXT:
+			break
+		else:
+			c.hero_pass()
+	seen = c._ev_id
+	if c.state == "hero":
+		c.hero_act("a_hieb", c.foes[0])
+		dump(c, "Axt toetet den LETZTEN Gegner")
+	else:
+		dump(c, "Kampf vorher beendet")
+	print("   result=", c.result, " state=", c.state, " actor=", nm(c.actor))
+
+
+func _s_dots_and_skips() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["brecher", "messerkerl", "schuetze", "haken"], "raeuber")
+	until_hero(c, Roles.Id.AXT)
+	seen = c._ev_id
+	c.hero_act("a_spalt", c.foes[0])
+	dump(c, "Axt a_spalt (Blutung) auf Brecher")
+	var g := 0
+	while c.state != "done" and g < 30:
+		g += 1
+		var before := c._ev_id
+		if c.state == "foe":
+			c.act_foe()
+		else:
+			c.hero_pass()
+		if c._ev_id > before:
+			dump(c, "weiter (Blutung/Zug) #%d" % g)
+			if g > 7:
+				break
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["brecher", "messerkerl", "schuetze", "haken"], "raeuber")
+	until_hero(c, Roles.Id.SCHILD)
+	seen = c._ev_id
+	c.hero_act("s_stoss", c.foes[0])
+	dump(c, "Schild s_stoss (Betaeubung)")
+	print("   foe0.stun=", c.foes[0].stun, "  Journal-Ende: ", c.journal.slice(c.journal.size() - 4).map(func(d): return d["text"]))
+	# Betaeubter Gegner ueberspringt: sieht man ein Ereignis?
+	g = 0
+	while c.state != "done" and g < 12:
+		g += 1
+		var j0 := c.journal.size()
+		var e0 := c._ev_id
+		if c.state == "foe":
+			c.act_foe()
+		else:
+			c.hero_pass()
+		for i in range(j0, c.journal.size()):
+			if String(c.journal[i]["text"]).contains("betäubt und setzt aus"):
+				print("   Betaeubung uebersprungen; neue Ereignisse dabei: ", c._ev_id - e0, "  Journal: ", c.journal[i]["text"])
+	# Heldenmut / Zusammenbruch
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost"])
+	until_hero(c, Roles.Id.AXT)
+	seen = c._ev_id
+	c.snap_force = "heroic"
+	c.snap_variant = 0
+	c.heroes[2].man.stress = 98.0
+	c._stress(c.heroes[2], 6.0)
+	dump(c, "Heldenmut (Kampfrausch) ausserhalb des Zuges")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost"])
+	until_hero(c, Roles.Id.AXT)
+	seen = c._ev_id
+	c.snap_force = "break"
+	c.heroes[2].man.stress = 98.0
+	c._stress(c.heroes[2], 6.0)
+	dump(c, "Zusammenbruch")
+	# Berserker raest
+	var found := false
+	for trial in 40:
+		c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost"])
+		c.heroes[1].man.afflicted = true
+		c.heroes[1].man.affliction = CrewMember.Affliction.BERSERK
+		var gg := 0
+		while c.state != "done" and gg < 30:
+			gg += 1
+			var e1 := c._ev_id
+			if c.state == "foe":
+				c.act_foe()
+			else:
+				c.hero_pass()
+			for ev in c.events:
+				if int(ev["id"]) > e1 and String(ev["text"]) == "rastet aus!":
+					found = true
+			if found:
+				break
+		if found:
+			seen = 0
+			dump(c, "Berserker rastet aus (alle Ereignisse bis dahin)")
+			break
+
+
+func _s_kraken() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["tentakel", "tentakel", "kraken"], "kraken")
+	# Griff erzwingen: Fangarm 0 packt Mann 1
+	var arm := c.foes[0]
+	var g := 0
+	while c.state != "done" and g < 60:
+		g += 1
+		if c.state == "foe" and c.actor == arm:
+			seen = c._ev_id
+			arm.holding = null
+			c._execute(arm, "f_kr_griff", c.heroes[1])
+			dump(c, "Fangarm f_kr_griff (direkt ausgefuehrt)")
+			break
+		elif c.state == "foe":
+			c.act_foe()
+		else:
+			c.hero_pass()
+	if arm.holding != null:
+		seen = c._ev_id
+		arm.hold_left = 2
+		c._hold_turn(arm)
+		dump(c, "Haltezug 1 (Pressen)")
+		c._hold_turn(arm)
+		dump(c, "Haltezug 2 (ueber Bord)")
+	else:
+		print("   (Griff verfehlt)")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["tentakel", "kraken"], "kraken")
+	for t in c.foes.duplicate():
+		if t.kind == "tentakel":
+			c._hurt(t, 9999, null)
+	var body: Combat.Fighter = c.foes[c.foes.size() - 1]
+	seen = c._ev_id
+	dump(c, "Fangarm gefaellt (Kraken-Koerper offen)")
+	body.crush_cd = 0
+	c.actor = body
+	c.state = "foe"
+	c.act_foe()
+	dump(c, "Kraken kuendigt Zerquetschen an")
+	c.actor = body
+	c.state = "foe"
+	c.act_foe()
+	dump(c, "Kraken zerquetscht (Flaeche auf alle Maenner)")
+	c.actor = body
+	c.state = "foe"
+	seen = c._ev_id
+	c._execute(body, "f_kr_tinte", null)
+	dump(c, "Kraken f_kr_tinte")
+	seen = c._ev_id
+	c._hurt(body, 9999, null)
+	dump(c, "Kraken stirbt (Folge: alle uebrigen Gegner sterben mit)")
+	print("   result=", c.result, " state=", c.state)
+
+
+func _s_misc() -> void:
+	var c := mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["beschwoerer", "rost"])
+	var g := 0
+	while c.state != "done" and g < 80:
+		g += 1
+		var e0 := c._ev_id
+		if c.state == "foe":
+			c.act_foe()
+		else:
+			c.hero_pass()
+		var summoned := false
+		for ev in c.events:
+			if int(ev["id"]) > e0 and String(ev["type"]) == "spawn":
+				summoned = true
+		if summoned:
+			seen = e0
+			dump(c, "Beschwoerung (Ereignisse dieses Zuges)")
+			break
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["priester", "rost"])
+	g = 0
+	while c.state != "done" and g < 80:
+		g += 1
+		var e1 := c._ev_id
+		if c.state == "foe":
+			c.foes[1].hp = 5.0
+			c.act_foe()
+		else:
+			c.hero_pass()
+		var healed := false
+		for ev in c.events:
+			if int(ev["id"]) > e1 and String(ev["type"]) == "heal":
+				healed = true
+		if healed:
+			seen = e1
+			dump(c, "Gegner-Heilung (Priester)")
+			break
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost"])
+	until_hero(c, Roles.Id.AXT)
+	seen = c._ev_id
+	c.hero_move(1 if c.actor.rank == 0 else 0)
+	dump(c, "hero_move (Platztausch): Ereignisse")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["rost", "rost"])
+	until_hero(c, Roles.Id.BOGEN)
+	seen = c._ev_id
+	c.hero_pass()
+	dump(c, "hero_pass (Abwarten): Ereignisse")
+	c = mk([Roles.Id.SCHILD, Roles.Id.AXT, Roles.Id.BOGEN, Roles.Id.SKALDE], ["kaufmann"], "haendler")
+	g = 0
+	seen = c._ev_id
+	while c.state != "done" and g < 20:
+		g += 1
+		var e2 := c._ev_id
+		var j2 := c.journal.size()
+		if c.state == "foe":
+			c.act_foe()
+		else:
+			c.hero_pass()
+		for i in range(j2, c.journal.size()):
+			if String(c.journal[i]["text"]).contains("flieht"):
+				print("   Flucht: ", c.journal[i]["text"], " ; neue Ereignisse: ", c._ev_id - e2, "  state=", c.state, " result=", c.result)
+		if c.state == "done":
+			break

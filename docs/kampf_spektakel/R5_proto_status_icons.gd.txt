@@ -1,0 +1,35 @@
+class_name StatusIcons
+extends RefCounted
+
+## Statussymbole im Deckkampf (assets/status_icons.png, Entwurf aus docs/kampf_spektakel/R5_statussymbole.py):
+## ein Streifen aus 9x9-Feldern, die Reihenfolge hier ist die Spalte im Bild.
+
+const SIZE := 9
+const PATH := "res://assets/status_icons.png"
+const ORDER := ["schwelle", "griff", "blind", "quetschen", "betaeubt", "blutet", "markiert", "schildwall", "kriegslied", "spott", "panik", "leer"]
+
+static var _tex: Texture2D = null
+
+
+static func texture() -> Texture2D:
+	if _tex == null:
+		_tex = load(PATH) as Texture2D
+	return _tex
+
+
+## Zeichnet das Symbol (ohne Skalierung) mit der oberen linken Ecke bei pos.
+static func draw(ci: CanvasItem, name: String, pos: Vector2, tint: Color = Color.WHITE) -> void:
+	var i := ORDER.find(name)
+	var t := texture()
+	if i < 0 or t == null:
+		return
+	ci.draw_texture_rect_region(t, Rect2(pos, Vector2(SIZE, SIZE)), Rect2(float(i * SIZE), 0.0, float(SIZE), float(SIZE)), tint)
+
+
+## Das Symbol doppelt so groß (18x18), für Warnungen wie "Kraken spannt sich".
+static func draw_big(ci: CanvasItem, name: String, pos: Vector2, tint: Color = Color.WHITE) -> void:
+	var i := ORDER.find(name)
+	var t := texture()
+	if i < 0 or t == null:
+		return
+	ci.draw_texture_rect_region(t, Rect2(pos, Vector2(SIZE * 2, SIZE * 2)), Rect2(float(i * SIZE), 0.0, float(SIZE), float(SIZE)), tint)

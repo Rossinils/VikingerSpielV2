@@ -1,0 +1,198 @@
+extends RefCounted
+
+## NUR PROTOTYP (Arbeitskopie "figuren"): Weg B, neue Rig-Figuren (112x104-Zellen, 31 Frames je Zeile) gegen die heutigen 44x56.
+## Aufruf: --proto=oldstrike | rigstrike | oldzoom | rigzoom | rigzoom15 | sizes
+## Atlas: assets/rig_proto.png (erzeugt von docs/kampf_spektakel/R2_rig_proto.py, Modus atlas)
+
+const W := 44.0
+const H := 56.0
+const BG := Color("14171e")
+const LINE := Color("3b2a1d")
+const RW := 112.0
+const RH := 104.0
+const RAX := 40.0
+const RGY := 99.0
+const FEET := 120.0
+const HERO_X := [206.0, 152.0, 98.0, 44.0]
+const FOE_X := [274.0, 328.0, 382.0, 436.0]
+const RIG_FRAMES := ["idle_0", "idle_1", "idle_2", "idle_3", "ready_0", "ready_1", "windup_0", "windup_1", "strike_0", "strike_1",
+		"follow_0", "follow_1", "cast_0", "cast_1", "cast_2", "block_0", "block_1", "dodge", "hit_0", "hit_1", "stun_0", "stun_1",
+		"door_0", "door_1", "fall_0", "fall_1", "fall_2", "dead", "cheer_0", "cheer_1", "cheer_2"]
+const RIG_ROWS := {"axt": 0, "schild": 1, "bogen": 2, "skalde": 3, "muskete": 4, "rost": 5, "brecher": 6, "totenwart": 7}
+# alte Atlaszeilen (44x56); Spalte 0/1 Stehen, 2 Angriff, 3 Treffer, 4 Schwelle
+const OLD_ROWS := {"axt": 1, "schild": 0, "bogen": 2, "skalde": 3, "muskete": 4, "rost": 5, "brecher": 8, "totenwart": 7, "hund": 17, "tentakel": 18}
+
+static var _rig_tex: Texture2D = null
+static var _tex: Texture2D = null
+static var _kraken: Texture2D = null
+static var _fx_done := ""
+
+
+static func _rig(h: Hud, who: String, fr: String, feet: Vector2, flip: bool = false, tint: Color = Color.WHITE, sc: float = 1.0) -> void:
+	if _rig_tex == null:
+		_rig_tex = load("res://assets/rig_proto.png") as Texture2D
+	var col := RIG_FRAMES.find(fr)
+	var row := int(RIG_ROWS[who])
+	var src := Rect2(float(col) * RW, float(row) * RH, RW, RH)
+	var top := feet.y - (RGY - 1.0) * sc
+	if flip:
+		# negative Breite spiegelt, die Position bleibt die linke Kante: Quellspalte RAX landet auf feet.x
+		h.draw_texture_rect_region(_rig_tex, Rect2(roundf(feet.x - (RW - RAX) * sc), roundf(top), -RW * sc, RH * sc), src, tint)
+	else:
+		h.draw_texture_rect_region(_rig_tex, Rect2(roundf(feet.x - RAX * sc), roundf(top), RW * sc, RH * sc), src, tint)
+
+
+## alter Atlas: Gegner stehen dort schon gespiegelt
+static func _old(h: Hud, who: String, col: int, feet: Vector2, tint: Color = Color.WHITE, sc: float = 1.0) -> void:
+	h.draw_texture_rect_region(_tex, Rect2(roundf(feet.x - 22.0 * sc), roundf(feet.y - 52.0 * sc), W * sc, H * sc), Rect2(float(col) * W, float(int(OLD_ROWS[who])) * H, W, H), tint)
+
+
+static func _plate(h: Hud, cx: float, nm: String, frac: float, hero: bool, active: bool = false) -> void:
+	if active:
+		for k in 4:
+			h.draw_rect(Rect2(cx - 34 + float(k) * 6.0, FEET - 4 + float(k), 68 - float(k) * 12.0, 8 - k * 2), Color(1.0, 0.85, 0.45, 0.05 + 0.02 * float(k)))
+		h.draw_rect(Rect2(cx - 17, FEET + 3, 34, 2), Hud.GOLD)
+	h._t(Vector2(cx - 26, FEET + 14), nm, Hud.PAPER, 8, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
+	h._bar(cx - 19, FEET + 18, 38, 4, frac, Hud.GREEN if hero else Hud.RED)
+
+
+static func _shadow(h: Hud, cx: float, w: float = 28.0) -> void:
+	h.draw_rect(Rect2(cx - w * 0.5, FEET - 1, w, 3), Color(0, 0, 0, 0.4))
+	h.draw_rect(Rect2(cx - w * 0.36, FEET + 2, w * 0.72, 1), Color(0, 0, 0, 0.25))
+
+
+static func _fx_once(h: Hud, key: String, x: float, y: float) -> void:
+	_fx_done = key  # jedes Bild neu setzen: die Anzeige altert die Effekte sonst weg
+	h._fx.items.clear()
+	h._fx.add("slash", {"x": x, "y": y, "dir": 1.0, "heavy": true, "crit": false}, 0.0, 0.34)
+	h._fx.items[h._fx.items.size() - 1]["age"] = 0.13
+	h._fx.add("spark", {"x": x, "y": y, "col": Color(0.85, 0.2, 0.18), "n": 6, "dir": -1.0}, 0.0, 0.5)
+	h._fx.items[h._fx.items.size() - 1]["age"] = 0.12
+
+
+## Kampfbühne in beiden Stärken: rig = true neue 96x96-Figuren, sonst die heutigen 44x56. zoom: Kamerazoom auf das Paar.
+static func _scene(h: Hud, rig: bool, zoom: float, ghosts: bool) -> void:
+	if _tex == null:
+		_tex = load("res://assets/combat.png") as Texture2D
+	h.draw_rect(Rect2(0, 0, 480, 320), Color(0.02, 0.03, 0.05))
+	for i in 12:
+		h.draw_rect(Rect2(0, float(i) * 8.0, 480, 8), Color(0.07, 0.09, 0.13, 0.5 - float(i) * 0.04))
+	var off := Vector2.ZERO
+	if zoom > 1.0:
+		var fo := Vector2(228.0, 92.0)
+		off = Vector2(240.0, 140.0) - fo * zoom
+		h.draw_set_transform(off, 0.0, Vector2(zoom, zoom))
+	h._draw_deck()
+	var ax: float = float(HERO_X[0]) + 18.0  # der Angreifer ist vorgerückt
+	var hnames := ["axt", "schild", "bogen", "skalde"]
+	var fnames := ["rost", "brecher", "totenwart", "rost"]
+	for k in range(3, 0, -1):
+		var fx: float = float(HERO_X[k])
+		_shadow(h, fx)
+		if rig:
+			_rig(h, String(hnames[k]), "idle_%d" % (k % 4), Vector2(fx, FEET))
+		else:
+			_old(h, String(hnames[k]), k % 2, Vector2(fx, FEET))
+	for k in range(3, -1, -1):
+		var fx2: float = float(FOE_X[k])
+		var knock := 6.0 if k == 0 else 0.0
+		_shadow(h, fx2 + knock)
+		if rig:
+			_rig(h, String(fnames[k]), "hit_0" if k == 0 else "idle_%d" % ((k + 1) % 4), Vector2(fx2 + knock, FEET), true, Color(1.7, 0.7, 0.65) if k == 0 else Color.WHITE)
+		else:
+			_old(h, String(fnames[k]), 3 if k == 0 else k % 2, Vector2(fx2 + knock * 0.66, FEET), Color(1.7, 0.6, 0.55) if k == 0 else Color.WHITE)
+	_shadow(h, ax)
+	if rig:
+		if ghosts:
+			_rig(h, "axt", "windup_1", Vector2(ax - 22.0, FEET), false, Color(1.0, 0.7, 0.4, 0.18))
+			_rig(h, "axt", "windup_1", Vector2(ax - 12.0, FEET), false, Color(1.0, 0.75, 0.45, 0.3))
+		_rig(h, "axt", "strike_0", Vector2(ax, FEET), false, Color(1.25, 1.15, 1.05))
+	else:
+		if ghosts:
+			_old(h, "axt", 2, Vector2(ax - 12.0, FEET), Color(1.0, 0.7, 0.4, 0.18))
+			_old(h, "axt", 2, Vector2(ax - 6.0, FEET), Color(1.0, 0.75, 0.45, 0.3))
+		_old(h, "axt", 2, Vector2(ax, FEET), Color(1.25, 1.15, 1.05))
+	_fx_once(h, "scene", 262.0, FEET - (44.0 if rig else 30.0))
+	h._fx.draw(h)
+	h.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if zoom <= 1.0:
+		var hn2 := ["Eirik", "Halvar", "Vidar", "Harald"]
+		var fn2 := ["Rost", "Brecher", "Wart", "Rost"]
+		var ff := [0.55, 1.0, 1.0, 0.9]
+		for k in 4:
+			_plate(h, float(HERO_X[k]) + (18.0 if k == 0 else 0.0), String(hn2[k]), 1.0, true, k == 0)
+			_plate(h, float(FOE_X[k]), String(fn2[k]), float(ff[k]), false)
+	else:
+		# Namensschilder werden bei Kamerazoom nicht mitvergrößert, sondern an die verschobenen Standorte gesetzt
+		var p1 := off + Vector2(ax, FEET) * zoom
+		var p2 := off + Vector2(float(FOE_X[0]) + 6.0, FEET) * zoom
+		h._t(Vector2(p1.x - 30.0, 262.0), "Eirik", Hud.PAPER, 10, HORIZONTAL_ALIGNMENT_CENTER, 60.0)
+		h._bar(p1.x - 22.0, 268.0, 44.0, 5.0, 1.0, Hud.GREEN)
+		h._t(Vector2(p2.x - 30.0, 262.0), "Rost", Hud.PAPER, 10, HORIZONTAL_ALIGNMENT_CENTER, 60.0)
+		h._bar(p2.x - 22.0, 268.0, 44.0, 5.0, 0.55, Hud.RED)
+	var cap := "Neue Rig-Figuren (112x104-Zelle, Körper 65 px)" if rig else "Heutige Figuren (44x56-Zelle, Körper 40 px)"
+	if zoom > 1.0:
+		cap += ", Kamera %.1fx" % zoom
+	h._t(Vector2(8, 14), cap, Hud.GOLD, 9)
+
+
+static func draw_b(h: Hud, mode: String) -> bool:
+	match mode:
+		"oldstrike":
+			_scene(h, false, 1.0, true)
+		"rigstrike":
+			_scene(h, true, 1.0, true)
+		"oldzoom":
+			_scene(h, false, 2.0, true)
+		"rigzoom":
+			_scene(h, true, 2.0, true)
+		"rigzoom15":
+			_scene(h, true, 1.5, true)
+		"mixed":
+			# Weg C: Rig-Menschen, aber Fangarme, Hund und Kraken bleiben in ihren alten Zellen
+			if _tex == null:
+				_tex = load("res://assets/combat.png") as Texture2D
+			h.draw_rect(Rect2(0, 0, 480, 320), Color(0.02, 0.03, 0.05))
+			for i in 12:
+				h.draw_rect(Rect2(0, float(i) * 8.0, 480, 8), Color(0.07, 0.09, 0.13, 0.5 - float(i) * 0.04))
+			h._draw_deck()
+			if _kraken == null:
+				_kraken = load("res://assets/kraken.png") as Texture2D  # muss am Leben bleiben, solange gezeichnet wird
+			h.draw_texture_rect_region(_kraken,Rect2(float(FOE_X[3]) - 44.0, FEET - 94.0, 88.0, 88.0), Rect2(0.0, 0.0, 88.0, 88.0), Color.WHITE)
+			var hn := ["axt", "schild", "bogen", "skalde"]
+			for k in range(3, -1, -1):
+				_shadow(h, float(HERO_X[k]))
+				_rig(h, String(hn[k]), "ready_0" if k == 0 else "idle_%d" % (k % 4), Vector2(float(HERO_X[k]), FEET))
+			_shadow(h, float(FOE_X[0]))
+			_old(h, "tentakel", 0, Vector2(float(FOE_X[0]), FEET))
+			_shadow(h, float(FOE_X[1]))
+			_old(h, "tentakel", 1, Vector2(float(FOE_X[1]), FEET))
+			_shadow(h, float(FOE_X[2]), 20.0)
+			_old(h, "hund", 0, Vector2(float(FOE_X[2]), FEET))
+			var nm1 := ["Eirik", "Halvar", "Vidar", "Harald"]
+			for k in 4:
+				_plate(h, float(HERO_X[k]), String(nm1[k]), 1.0, true, k == 0)
+			var nm2 := ["Fangarm", "Fangarm", "Hund", "Kraken"]
+			for k in 4:
+				_plate(h, float(FOE_X[k]), String(nm2[k]), 1.0, false)
+			h._t(Vector2(8, 14), "Mischform: Rig-Menschen (112x104) mit Fangarmen, Hund und Kraken in den alten Zellen", Hud.GOLD, 9)
+		"sizes":
+			if _tex == null:
+				_tex = load("res://assets/combat.png") as Texture2D
+			h.draw_rect(Rect2(0, 0, 480, 320), BG)
+			h.draw_rect(Rect2(0, 150, 480, 1), LINE)
+			h.draw_rect(Rect2(0, 290, 480, 1), LINE)
+			h._t(Vector2(8, 12), "Größenvergleich 1:1 auf dem 480x320-Feld: oben heute, unten Rig", Hud.GOLD, 9)
+			var names := ["axt", "schild", "bogen", "skalde", "muskete", "rost", "brecher", "totenwart"]
+			for i in names.size():
+				var fx3 := 30.0 + float(i) * 56.0
+				if i < 5:
+					_old(h, String(names[i]), 0, Vector2(fx3, 150.0))
+				else:
+					_old(h, String(names[i]), 0, Vector2(fx3, 150.0))
+				_rig(h, String(names[i]), "idle_1", Vector2(fx3, 290.0), i >= 5)
+			h._t(Vector2(8, 164), "heute: Zelle 44x56, Figur etwa 40 px hoch, eine Standpose pro Waffe", Hud.PAPER, 8)
+			h._t(Vector2(8, 304), "Rig: Zelle 112x104, Figur etwa 65 px hoch (1,6x), 31 Frames je Figur", Hud.PAPER, 8)
+		_:
+			return false
+	return true

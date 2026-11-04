@@ -1,0 +1,50 @@
+extends SceneTree
+
+## Misst Textbreiten der Kampfoberfläche mit den Schriften des Hud (Segoe UI Semibold, Georgia kursiv).
+##   godot --headless --path . --script tools/r5_measure.gd
+
+
+func _make_font(names: Array, italic: bool) -> SystemFont:
+	var f := SystemFont.new()
+	f.font_names = PackedStringArray(names)
+	f.font_italic = italic
+	f.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+	f.hinting = TextServer.HINTING_NONE
+	f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
+	return f
+
+
+func _initialize() -> void:
+	var ui := _make_font(["Segoe UI Semibold", "Segoe UI", "Arial"], false)
+	var lore := _make_font(["Georgia", "Palatino Linotype", "Times New Roman"], true)
+	print("== Fertigkeitsnamen (Skala ui): Breite bei 8, 7, 6 px; Karte alt 44 px, neu 46 px")
+	var names := {}
+	for sid in Roles.SKILLS:
+		if String(sid).begins_with("f_"):
+			continue
+		names[String(Roles.SKILLS[sid]["name"])] = true
+	for n in ["Platztausch", "Rückzug"]:
+		names[n] = true
+	var keys: Array = names.keys()
+	keys.sort_custom(func(a, b): return ui.get_string_size(a, HORIZONTAL_ALIGNMENT_LEFT, -1, 8).x > ui.get_string_size(b, HORIZONTAL_ALIGNMENT_LEFT, -1, 8).x)
+	for n in keys:
+		var w8 := ui.get_string_size(n, HORIZONTAL_ALIGNMENT_LEFT, -1, 8).x
+		var w7 := ui.get_string_size(n, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x
+		var w6 := ui.get_string_size(n, HORIZONTAL_ALIGNMENT_LEFT, -1, 6).x
+		print("%-18s %5.1f %5.1f %5.1f  alt(<=10 Zeichen:8 sonst 7, 44 px): %s" % [n, w8, w7, w6, ("passt" if (w8 if n.length() <= 10 else w7) <= 44.0 else "ZU BREIT")])
+	print("== Gegner- und Männernamen im Namensschild (Georgia kursiv 8 px, Schild 52 px, innen 46)")
+	var nm: Array = []
+	for k in Foes.TYPES:
+		nm.append(String(Foes.TYPES[k]["short"]))
+	for n in ["Gunnar", "Sigurd", "Harald", "Torvald", "Halvar"]:
+		nm.append(n)
+	for n in nm:
+		print("%-12s 8px: %5.1f  7px: %5.1f" % [n, lore.get_string_size(n, HORIZONTAL_ALIGNMENT_LEFT, -1, 8).x, lore.get_string_size(n, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x])
+	print("== Kampfnamen (Kopfzeile, 8 px, Platz 112)")
+	for k in Foes.FORMATIONS:
+		var t := String(Foes.FORMATIONS[k]["name"])
+		print("%-28s 8px: %5.1f  7px: %5.1f" % [t, ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 8).x, ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x])
+	print("== Meldungen (ui 8 px, Platz 464): längste Zeilen")
+	for t in ["ZUSAMMENBRUCH! Harald verliert den Mut und erstarrt. Seine Angst steckt die anderen an.", "Der Kraken spannt seine Arme um das Schiff! Im nächsten Zug zerquetscht er das Deck. Ein Betäubter kann es nicht.", "HELDENMUT! Bjarne reißt alle mit: mehr Schaden für alle, Verzweiflung −8.", "  Harald hängt im Griff! Fällt der Fangarm nicht bald, geht er über Bord."]:
+		print("%5.1f (8px)  %5.1f (7px) %s" % [ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 8).x, ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x, t])
+	quit()
