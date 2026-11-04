@@ -5,7 +5,7 @@ extends RefCounted
 ## Wackeln, Aufblitzen und kurzes Einfrieren. Reine Anzeige, rechnet nichts und kennt keine Kampfregeln.
 ## Die Kampfansicht (hud.gd) füttert das hier aus den Ereignissen von Combat.events und zeichnet es über die Figuren.
 
-const FEET := 120.0
+const FEET := 140.0
 
 ## Wirkung je Fertigkeit: [beim Ausholen, beim Treffer]. Leer = nichts.
 ## Ausholen: shield, notes (Lied), warsong, wail, ink, crush. Treffer: slash, chop, bash, bite.
@@ -200,12 +200,23 @@ func flash_color() -> Color:
 	return Color(_flash_col, _flash_col.a * _flash_t / maxf(_flash_dur, 0.01))
 
 
-func draw(ci: CanvasItem) -> void:
+## Maßstab der Wirkungen um ihren Ankerpunkt: die Kampffiguren sind doppelt so groß wie früher, die Wirkungen wachsen mit.
+const LOCAL_SCALE := 1.7
+const LOCAL_KINDS := ["slash", "bash", "bite", "heal", "notes", "shield", "ring", "spark", "muzzle"]
+
+
+## base: die Kamera der Bühne (Wackeln, Schub); sie muss hier mitgegeben werden, weil jede Wirkung ihre eigene Matrix setzt.
+func draw(ci: CanvasItem, base: Transform2D = Transform2D.IDENTITY) -> void:
 	for it in items:
 		var age := float(it["age"])
 		if age < 0.0:
 			continue
 		var u := clampf(age / float(it["dur"]), 0.0, 1.0)
+		var local: bool = LOCAL_KINDS.has(String(it["k"])) and it.has("x") and it.has("y")
+		if local:
+			var ax := float(it["x"])
+			var ay := float(it["y"])
+			ci.draw_set_transform_matrix(base * Transform2D(Vector2(LOCAL_SCALE, 0.0), Vector2(0.0, LOCAL_SCALE), Vector2(ax * (1.0 - LOCAL_SCALE), ay * (1.0 - LOCAL_SCALE))))
 		match String(it["k"]):
 			"slash":
 				_slash(ci, it, u)
@@ -235,6 +246,8 @@ func draw(ci: CanvasItem) -> void:
 				_muzzle(ci, it, u)
 			"spark":
 				_spark(ci, it, u)
+		if local:
+			ci.draw_set_transform_matrix(base)
 
 
 func _slash(ci: CanvasItem, it: Dictionary, u: float) -> void:
@@ -278,30 +291,30 @@ func _bash(ci: CanvasItem, it: Dictionary, u: float) -> void:
 func _arrow(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var from := Vector2(float(it["x"]), float(it["y"]))
 	var to := Vector2(float(it["x2"]), float(it["y2"]))
-	var pos := from.lerp(to, u) + Vector2(0.0, -9.0 * sin(PI * u))
+	var pos := from.lerp(to, u) + Vector2(0.0, -16.0 * sin(PI * u))
 	var slope := (to - from).normalized() + Vector2(0.0, -0.5 * cos(PI * u))
 	var dv := slope.normalized()
 	var al := 1.0 - (clampf((u - 0.6) / 0.4, 0.0, 1.0) if bool(it.get("miss", false)) else 0.0)
-	var tail := pos - dv * 9.0
-	ci.draw_line(tail, pos, Color(0.8, 0.64, 0.4, al), 1.0)
-	ci.draw_line(pos, pos + dv * 2.0, Color(0.92, 0.93, 0.97, al), 2.0)
-	ci.draw_line(tail, tail + dv.rotated(2.5) * 3.0, Color(0.6, 0.72, 0.5, al), 1.0)
-	ci.draw_line(tail, tail + dv.rotated(-2.5) * 3.0, Color(0.6, 0.72, 0.5, al), 1.0)
+	var tail := pos - dv * 16.0
+	ci.draw_line(tail, pos, Color(0.8, 0.64, 0.4, al), 2.0)
+	ci.draw_line(pos, pos + dv * 4.0, Color(0.92, 0.93, 0.97, al), 3.0)
+	ci.draw_line(tail, tail + dv.rotated(2.5) * 5.0, Color(0.6, 0.72, 0.5, al), 2.0)
+	ci.draw_line(tail, tail + dv.rotated(-2.5) * 5.0, Color(0.6, 0.72, 0.5, al), 2.0)
 
 
 func _whip(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var a := Vector2(float(it["x"]), float(it["y"]))
 	var b := Vector2(float(it["x2"]), float(it["y2"]))
-	var c := Vector2((a.x + b.x) * 0.5, minf(a.y, b.y) - 38.0)
+	var c := Vector2((a.x + b.x) * 0.5, minf(a.y, b.y) - 70.0)
 	var p := clampf(u / 0.5, 0.0, 1.0)
 	var al := 1.0 - clampf((u - 0.6) / 0.4, 0.0, 1.0)
 	var pts := PackedVector2Array()
 	for k in 14:
 		var t := p * float(k) / 13.0
 		pts.append(a.lerp(c, t).lerp(c.lerp(b, t), t))
-	ci.draw_polyline(pts, Color(0.23, 0.15, 0.32, al), 5.0)
-	ci.draw_polyline(pts, Color(0.42, 0.29, 0.54, al), 3.0)
-	ci.draw_polyline(pts, Color(0.54, 0.38, 0.65, al), 1.0)
+	ci.draw_polyline(pts, Color(0.23, 0.15, 0.32, al), 8.0)
+	ci.draw_polyline(pts, Color(0.42, 0.29, 0.54, al), 5.0)
+	ci.draw_polyline(pts, Color(0.54, 0.38, 0.65, al), 2.0)
 	if u > 0.5:
 		var q := (u - 0.5) / 0.5
 		ci.draw_arc(b, 3.0 + 12.0 * q, 0.0, TAU, 18, Color(0.55, 0.4, 0.7, 1.0 - q), 2.0)
@@ -360,12 +373,12 @@ func _ink(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var al := 0.55 * (1.0 - u * u)
 	for i in 16:
 		var cx := 22.0 + float((i * 53) % 215)
-		var cy := 62.0 + float((i * 37) % 56)
+		var cy := 50.0 + float((i * 37) % 96)
 		var r := (7.0 + float((i * 7) % 9)) * (0.4 + u * 1.2)
 		ci.draw_circle(Vector2(cx, cy), r, Color(0.11, 0.05, 0.19, al))
 	for i in 8:
 		var bx := 30.0 + float((i * 71) % 190)
-		var by := 110.0 - u * (30.0 + float((i * 13) % 25))
+		var by := 150.0 - u * (40.0 + float((i * 13) % 35))
 		ci.draw_arc(Vector2(bx, by), 1.0 + float(i % 3), 0.0, TAU, 8, Color(0.6, 0.5, 0.8, (1.0 - u) * 0.8), 1.0)
 
 
@@ -383,9 +396,9 @@ func _bullet(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var pos := from.lerp(to, u)
 	var dv := (to - from).normalized()
 	var al := 1.0 - (clampf((u - 0.7) / 0.3, 0.0, 1.0) if bool(it.get("miss", false)) else 0.0)
-	ci.draw_line(pos - dv * 16.0, pos, Color(1.0, 0.85, 0.4, 0.45 * al), 3.0)
-	ci.draw_line(pos - dv * 12.0, pos, Color(1.0, 0.97, 0.8, al), 1.0)
-	ci.draw_rect(Rect2(roundf(pos.x) - 1, roundf(pos.y) - 1, 2, 2), Color(1, 1, 1, al))
+	ci.draw_line(pos - dv * 28.0, pos, Color(1.0, 0.85, 0.4, 0.45 * al), 5.0)
+	ci.draw_line(pos - dv * 22.0, pos, Color(1.0, 0.97, 0.8, al), 2.0)
+	ci.draw_rect(Rect2(roundf(pos.x) - 2, roundf(pos.y) - 2, 4, 4), Color(1, 1, 1, al))
 
 
 ## Mündungsfeuer und Pulverrauch an der Waffe.
@@ -429,6 +442,6 @@ func _spark(ci: CanvasItem, it: Dictionary, u: float) -> void:
 func _dust(ci: CanvasItem, it: Dictionary, u: float) -> void:
 	var x := float(it["x"])
 	for i in 6:
-		var px := x - 15.0 + float(i) * 6.0 + (u * 8.0 if i % 2 == 0 else -u * 8.0)
+		var px := x - 28.0 + float(i) * 11.0 + (u * 12.0 if i % 2 == 0 else -u * 12.0)
 		var py := FEET - 2.0 - u * (5.0 + float(i % 3) * 3.0)
-		ci.draw_circle(Vector2(px, py), 2.0 + 3.0 * u, Color(0.45, 0.33, 0.22, 0.6 * (1.0 - u)))
+		ci.draw_circle(Vector2(px, py), 3.0 + 4.0 * u, Color(0.45, 0.33, 0.22, 0.6 * (1.0 - u)))

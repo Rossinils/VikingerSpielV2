@@ -42,6 +42,7 @@ var _shot_harbor := false
 var _shot_battle := false  # Screenshot erst in Runde 2 einer Seeschlacht (mit --forceenc=5 --autoplay)
 var _shot_crew := false  # Mannschaftsansicht offen, ein Mann gewählt
 var _shot_fight := 0  # Deckkampf: 1 Aufstellung, 2 Kampf, 3 Kampf mit gewählter Fertigkeit (--shotfight, --shotfight2, --shotfight3)
+var _shot_form := ""  # --shotform=draugr|raeuber|haendler|dorf|kraken: Ort des Deckkampfs bei --shotfight2/3
 var _shot_kraken := 0  # Deckkampf gegen den Kraken: 1 mit Griff und Tinte, 2 Körper offen und spannt sich (--shotkraken, --shotkraken2)
 var _shot_fx := 0  # Deckkampf mitten im Schuss (1, --shotfx), Hieb (2, --shotfx2) oder Musketenschuss (3, --shotfx3)
 var _shot_loadout := false  # Aufstellung mit der Fertigkeitenwahl des Musketiers (--shotloadout)
@@ -123,6 +124,10 @@ func _ready() -> void:
 			_shot_fight = int(arg.substr(arg.length() - 1)) if arg != "--shotfight" else 1
 		elif arg == "--shotkraken" or arg == "--shotkraken2":
 			_shot_kraken = int(arg.substr(arg.length() - 1)) if arg != "--shotkraken" else 1
+		elif arg.begins_with("--stagefx="):
+			Settings.stage_fx = int(arg.get_slice("=", 1))  # 0 = Kampfbild schlicht (für Prüfungen)
+		elif arg.begins_with("--shotform="):
+			_shot_form = arg.get_slice("=", 1)
 		elif arg == "--shotloadout":
 			_shot_loadout = true
 		elif arg == "--shotfx" or arg == "--shotfx2" or arg == "--shotfx3":
@@ -245,9 +250,12 @@ func _ready() -> void:
 		_hud.hide_help()
 		_voy.auto_combat = false
 		_voy.stage = 3
-		_voy._enc_pending = Encounters.Id.HAENDLER
-		_voy._advance()
-		_voy.decide_encounter(0)
+		if _shot_form != "" and _shot_fight >= 2:
+			_voy.start_fight(_shot_form, {"source": "encounter"}, 3)
+		else:
+			_voy._enc_pending = Encounters.Id.HAENDLER
+			_voy._advance()
+			_voy.decide_encounter(0)
 		if _shot_fight >= 2:
 			_voy.fight_begin()
 			var guard_n := 0
@@ -260,6 +268,7 @@ func _ready() -> void:
 					_voy.combat.act_foe()
 					guard_n += 1
 			if _shot_fight >= 3 and _voy.combat != null and _voy.combat.state == "hero":
+				_hud._fight_actor = _voy.combat.actor  # sonst setzt die Anzeige die gewählte Fertigkeit im ersten Bild zurück
 				_hud._fight_skill = String(_voy.combat.actor.skills[0])
 	if _shot_kraken > 0:  # Screenshot: der Kraken im Deckkampf
 		_hud.hide_help()
@@ -518,6 +527,7 @@ func _take_shot(path: String) -> void:
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(path)
 	print("Screenshot %dx%d: %s" % [img.get_width(), img.get_height(), path])
+	print("STAGE Messung: Zeichenaufrufe=%d Primitive=%d Objekte=%d" % [int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)), int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)), int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME))])
 	get_tree().quit()
 
 
@@ -666,6 +676,9 @@ func _setting_click(id: String) -> void:
 		"tfight":
 			Settings.auto_combat = not Settings.auto_combat
 			_voy.auto_combat = Settings.auto_combat
+			Settings.save_all()
+		"tstage":
+			Settings.stage_fx = 0 if Settings.stage_fx != 0 else 1  # Kampfbild: voll (Nebel, Glanz, Regen, Blitz) oder schlicht
 			Settings.save_all()
 		"tback":
 			_hud.settings_open = false

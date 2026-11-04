@@ -73,6 +73,7 @@ unter einer Minute und liefert byteweise dieselben Dateien wie die eingecheckten
 | `tools/make_ui.py` | `ui.png`, `vignette.png` und `scripts/ui_atlas.gd` (Rahmen, Knöpfe, Karte) |
 | `tools/make_skill_icons.py` | `skill_icons.png` |
 | `tools/make_slot_art.py` | `slots.png` (Walzensymbole) |
+| `tools/make_stage_art.py` | `stage_back.png`, `stage_rail.png`, `stage_deck.png`, `stage_glow.png`, `stage_fog.png` und `scripts/stage_atlas.gd` (Bühne des Deckkampfs: fünf Orte) |
 | `tools/make_item_icons.py` | `item_icons.png` (36 Gegenstands-Symbole x 4 Seltenheiten), `perk_emblems.png` (14 Segen-Embleme) und `scripts/item_icons.gd`; Übersicht: `docs/grafik/` |
 | `tools/make_sfx.py` | `assets/sfx/*.wav` (Klänge; „It's alive!“ nutzt die Rohstimmen aus `tools/voice/`) |
 | `tools/make_music.py` | `Musik/Hintergrund/*.wav` |
@@ -90,7 +91,8 @@ Aufruf: `python -X utf8 -I tools/make_art.py`. Danach `tools/dev/rungd.sh import
 | `scripts/battle.gd`, `encounters.gd` | Seeschlacht, Begegnungen |
 | `scripts/slots.gd`, `slot_view.gd` | Spielautomaten: Regeln und Anzeige (siehe `AUTOMATEN.md`) |
 | `scripts/items.gd`, `gear.gd`, `perks.gd` | Schiffsgegenstände, Ausrüstung der Männer, Segen (je mit Seltenheiten) |
-| `scripts/fight_*.gd` | Grundlagen für das Kampf-Spektakel (siehe unten) |
+| `scripts/fight_stage.gd`, `fight_fx.gd` | Bühne des Deckkampfs (Orte, Licht, Nebel) und die Kampfeffekte |
+| `scripts/fight_geo.gd`, `fight_level.gd`, `fight_views.gd` | Verträge für das weitere Kampf-Spektakel (noch ungenutzt) |
 | `tools/` | Tests (`*test.gd`, `selftest.gd`), Asset-Skripte (`make_*.py`), Entwicklungshilfen (`tools/dev/`) |
 | `docs/kampf_spektakel/` | Entwurf und Plan für die überarbeitete Kampfansicht (`SPEC.md`, `BASELINE.md`) |
 

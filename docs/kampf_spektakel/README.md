@@ -1,6 +1,11 @@
 ﻿# Kampf-Spektakel: Ergebnisse der Entwurfsrunde (Stand 2026-11-04)
 
-Nichts davon ist im Spiel umgesetzt. Das Spiel ist unverändert (Sicherung vor dem Umbau: `..\..\..\_backup_vor_kampfspektakel`).
+**Stand 2026-11-04 (später):** Ein erster sichtbarer Teil ist im Spiel (vereinfacht, ohne die Architektur aus `SPEC.md`):
+die Bühne mit fünf Orten und Licht (`scripts/fight_stage.gd`, `tools/make_stage_art.py`), die doppelt gezeichneten Kampffiguren
+(das "2x-Gerüst" der SPEC), das Fokus-Licht auf den Handelnden und die Ziele, mitwachsende Kampfeffekte, die Einstellung
+"Kampfbild: voll/schlicht". Ebenfalls fertig: das Fundament W1-01 (Ereignisfelder, `stage_t`, Verträge, `eventtest`).
+**Noch offen:** Körper-Rig mit Posen (W1-05 und W1b), Regie mit Beats und Kamera (W1-02), Wucht-Schrift und Zahlen (W1-07),
+Oberfläche mit Zugleiste und Fokusschild (W1-08), neue Klänge (W1-09). Das Spiel ist sonst unverändert.
 
 * `SPEC.md` : der gemeinsame Plan (Zielbild, Architektur, Schnittstellenverträge, Wellen und Aufgabenkarten, Pflichtprüfungen, Risiken). Die Prüfung durch einen kritischen Helfer steht noch aus.
 * `D1_regie.md`, `D2_bild.md`, `D3_wucht.md` : die drei Entwürfe (Fokusführung, Bühne und Grafik, Effekte und Oberfläche).
