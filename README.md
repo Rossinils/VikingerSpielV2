@@ -73,6 +73,7 @@ unter einer Minute und liefert byteweise dieselben Dateien wie die eingecheckten
 | `tools/make_ui.py` | `ui.png`, `vignette.png` und `scripts/ui_atlas.gd` (Rahmen, Knöpfe, Karte) |
 | `tools/make_skill_icons.py` | `skill_icons.png` |
 | `tools/make_slot_art.py` | `slots.png` (Walzensymbole) |
+| `tools/make_item_icons.py` | `item_icons.png` (36 Gegenstands-Symbole x 4 Seltenheiten), `perk_emblems.png` (14 Segen-Embleme) und `scripts/item_icons.gd`; Übersicht: `docs/grafik/` |
 | `tools/make_sfx.py` | `assets/sfx/*.wav` (Klänge; „It's alive!“ nutzt die Rohstimmen aus `tools/voice/`) |
 | `tools/make_music.py` | `Musik/Hintergrund/*.wav` |
 

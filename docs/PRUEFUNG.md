@@ -43,6 +43,13 @@ Die Darstellung unter Windows (Vulkan) kann in Farbe und Schatten leicht abweich
 * **Nicht geprüft:** Klang und Musik nach Gehör, Spielgefühl und Balance, `start.bat` und die `.ps1`-Änderungen (kein Windows hier),
   der Windows-Export.
 
+## Neue Grafik
+
+Gegenstände, Ausrüstung und Segen hatten kein einziges Bild (reiner Text in Werft, Ausrüstung, Rüstkammer und beim Stufenaufstieg). Neu, aus
+`tools/make_item_icons.py` (reproduzierbar, nur Standardbibliothek): 36 Symbole für alle Schiffsgegenstände, Ausrüstungsstücke und die
+Pfandflasche, je in den vier Seltenheiten mit eingebranntem Rand (20×20), und 14 Medaillon-Embleme für die Segen (32×32).
+Bilder dazu in `docs/grafik/` (Vorher/Nachher von Werft und Segen, Übersichten aller Symbole).
+
 ## Werkzeuge, die dabei entstanden sind
 
 | Werkzeug | Zweck |
