@@ -72,3 +72,32 @@ lesbar, aber ein Hinweis, sie bei Gelegenheit zu kürzen (Breite in Klammern):
 * Titel „Rüstkammer“ (Größe 15 statt 16), Hinweiszeile der Schmiede (Größe 6 statt 7)
 
 Das Bild „Kraken“ beendet sich mit der Engine-Meldung „1 resources still in use at exit“ (harmlos, nur beim Beenden).
+
+## Nachtrag: Körper-Rig und Kamerawucht (4. November 2026, später)
+
+Neu im Spiel: Körperfiguren mit 32 Bildern für alle 20 Gegnertypen und die 5 Rollen (Hund und Fangarm mit 21 bzw. 23, der Kraken
+wird gestreckt und gesenkt) und die Regie mit Kamera (Standbild, Zeitlupe, Kamerafahrt, Wackeln, Blitz, Rückstoß, Nachbilder).
+Bilder: `docs/grafik/kampf_rig_*.png`, `docs/grafik/rig_*.png`.
+
+| Prüfung | Ergebnis |
+|---|---|
+| `tools/figtest.gd` | 25 Streifen, 780 belegte Bilder: keines leer, jedes mit 2 px Rand, weiße Zeile deckungsgleich, Anker plausibel, Ersatzbilder lösen auf |
+| `tools/directortest.gd` | Kamera (Zoomgrenzen, Fahrt, Wackeln), Beat-Arten und Dauern (Tabelle ±3 ms), Standbild und Zeitlupe, 40 simulierte Kämpfe: Zeitbudget ≤ 6 s, kein Beat über 2,6 s, `pending_s` ≤ 4 s, jeder Treffer und Tod genau einmal gezeigt, Kraft stimmt am Ende, Hieb dauert 900 ms ±8 |
+| `tools/dev/alltests.sh` | alles grün; Logik-Prüfsumme der Kämpfe unverändert (3356533480): die Regeln wurden nicht angefasst |
+| Dauertest `--fightsoak=6` unter Xvfb | sechs Kämpfe (alle fünf Formationen) mit Anzeige und Regie ohne Fehlerzeile und ohne Notbremse |
+| Bilder der Kampfmomente (Ausholen, Schlag, Krit, Todesstoß, Gegnerzug, Heldenmut, Kraken) | gesehen, siehe `docs/grafik/` |
+
+Bei der Prüfung gefunden und behoben: die Regie hielt jeden Treffer auf einen Mann an der Schwelle für „Schwelle erreicht“ (verlängerte den
+Beat um 240 ms jedes Mal); ein Kampf mit vielen Schwellen riss das Zeitbudget (9 s statt 6 s), jetzt kürzt ein Regler die Beats, sobald das
+Budget aufgebraucht ist; der Hintergrund ließ beim Wackeln am Bildrand einen Streifen offen (jetzt 3 % Überlappung); beim Zoomen ragte die
+Bühne über die Meldungen (jetzt wird die Fläche darunter neu gedeckt).
+
+**Beobachtungen ohne Änderung:**
+* Die Rig-Figuren sind mit 64 px Höhe kleiner als die doppelt gezeichneten alten (82 px), dafür feiner; die Kulissen bleiben doppelt
+  gezeichnet. Das Pixelmaß ist also gemischt (Figuren und Schrift 1×, Hintergrund 2×). Die Kamerafahrt gleicht es beim Zoom aus.
+* Gewöhnliche Gegnertreffer zoomen nicht: die SPEC rundet 1,0625 auf 1,0 ab (nur Krit, Tod, Schwelle und Treffer der Männer fahren näher).
+* Klang: es gibt keine neuen Töne; schwere Treffer legen `bash` darunter, die Schwelle bekommt den Herzschlag aus dem Bestand.
+* Der Kraken hat keine neuen Bilder: Ausholen, Zuschlagen und Sinken entstehen durch Strecken und Absenken seiner fünf Spalten.
+* **Nicht geprüft:** wie sich die Bewegung beim Spielen anfühlt (nur Standbilder von Augenblicken, keine Bewegtbilder), Windows (Vulkan),
+  Balance, Klang.
+

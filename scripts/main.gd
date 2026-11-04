@@ -45,6 +45,9 @@ var _shot_fight := 0  # Deckkampf: 1 Aufstellung, 2 Kampf, 3 Kampf mit gewählte
 var _shot_form := ""  # --shotform=draugr|raeuber|haendler|dorf|kraken: Ort des Deckkampfs bei --shotfight2/3
 var _shot_kraken := 0  # Deckkampf gegen den Kraken: 1 mit Griff und Tinte, 2 Körper offen und spannt sich (--shotkraken, --shotkraken2)
 var _shot_fx := 0  # Deckkampf mitten im Schuss (1, --shotfx), Hieb (2, --shotfx2) oder Musketenschuss (3, --shotfx3)
+var _soak := 0  # --fightsoak=N: N Deckkämpfe nacheinander mit Anzeige und Regie spielen (Dauertest unter Xvfb), danach beenden
+var _soak_done := 0
+var _soak_cd := 0.0
 var _shot_kill := false  # --shotkill: wie --shotfx2, aber der Gegner hat nur noch 1 Kraft und fällt (Todesstoß, Kamera, Zeitlupe)
 var _shot_crit := false  # --shotcrit: der Hieb trifft kritisch
 var _shot_loadout := false  # Aufstellung mit der Fertigkeitenwahl des Musketiers (--shotloadout)
@@ -134,6 +137,8 @@ func _ready() -> void:
 			_shot_loadout = true
 		elif arg == "--shotfx" or arg == "--shotfx2" or arg == "--shotfx3":
 			_shot_fx = int(arg.substr(arg.length() - 1)) if arg != "--shotfx" else 1
+		elif arg.begins_with("--fightsoak="):
+			_soak = int(arg.substr(12))
 		elif arg == "--shotkill" or arg == "--shotcrit":
 			_shot_fx = 2
 			_shot_kill = arg == "--shotkill"
@@ -447,6 +452,30 @@ func _ready() -> void:
 	_world.add_child(RainLayer.new())
 
 
+## Dauertest der Kampfansicht: Kampf um Kampf, die Männer wählen von selbst (Combat.auto_hero), die Regie spielt alles ab.
+func _soak_step(delta: float) -> void:
+	_soak_cd -= delta
+	if _voy.combat == null:
+		if _soak_done >= _soak:
+			print("SOAK fertig: %d Kämpfe, Regie-Zähler %d" % [_soak_done, FightDirector.instances])
+			get_tree().quit()
+			return
+		var forms := ["draugr", "raeuber", "haendler", "dorf", "kraken"]
+		_hud.hide_help()
+		_voy.auto_combat = false
+		_voy.stage = 3
+		_voy.start_fight(String(forms[_soak_done % forms.size()]), {"source": "encounter"}, 3)
+		_voy.fight_begin()
+		_soak_done += 1
+		_soak_cd = 0.5
+		return
+	var c := _voy.combat
+	if c.state == "hero" and _soak_cd <= 0.0 and (_hud._dir == null or _hud._dir.pending_s() < 0.3):
+		c.auto_hero()
+		_voy._combat_t = Voyage.COMBAT_PACE
+		_soak_cd = 0.3
+
+
 func _process(delta: float) -> void:
 	Waves.time += delta
 	Waves.storm = _voy.storm
@@ -464,6 +493,8 @@ func _process(delta: float) -> void:
 			break
 	if _bot != "":
 		_bot_step(delta)
+	if _soak > 0:
+		_soak_step(delta)
 	if (_shot_slot == "play" or _shot_slot == "playloki") and _hud.slot_view != null and not _hud.slot_view.busy():
 		_shot_slot_play()
 

@@ -470,4 +470,12 @@ static func _cues(b: Beat, atk: Dictionary) -> void:
 		var ty := String(e["type"])
 		if ty in ["text", "heroic", "snap", "spawn", "overboard", "skip", "flee"]:
 			b.cues.append({"t": b.t_strike if ty != "text" else b.t_wind, "kind": "word", "data": {"f": e["who"], "type": ty, "text": String(e.get("text", ""))}})
+	if b.kind in ["schwelle_erreicht", "schwelle_haelt"]:
+		var th := b.t_strike
+		for c2 in b.contacts:
+			if String(c2["kind"]) == "hit":
+				th = float(c2["t"])
+				break
+		for k2 in 2:
+			b.cues.append({"t": th + (330.0 + 270.0 * float(k2)) * km, "kind": "sfx", "data": {"name": "heartbeat", "db": 0.0, "pitch": 1.0}})
 	b.cues.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return float(x["t"]) < float(y["t"]))

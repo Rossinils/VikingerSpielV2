@@ -123,7 +123,20 @@ func shake(amp: float, dur: float) -> void:
 		_shake_dur = dur
 
 
+var _flash_stamps: Array = []
+
+
+## Vollbildblitz: bei „Wackeln: aus“ gar nicht, bei „schwach“ halb so hell, nie mehr als drei in der Sekunde (SPEC 3.9, K8).
 func flash(col: Color, dur: float) -> void:
+	if Settings.shake == 0:
+		return
+	var now := Time.get_ticks_msec()
+	_flash_stamps = _flash_stamps.filter(func(t: int) -> bool: return now - t < 1000)
+	if _flash_stamps.size() >= 3:
+		return
+	_flash_stamps.append(now)
+	if Settings.shake == 1:
+		col.a *= 0.5
 	_flash_col = col
 	_flash_t = dur
 	_flash_dur = dur
@@ -225,7 +238,7 @@ func flash_color() -> Color:
 
 ## Maßstab der Wirkungen um ihren Ankerpunkt: die Kampffiguren sind doppelt so groß wie früher, die Wirkungen wachsen mit.
 static var local_scale := 1.7  # mit den Rig-Figuren (kleiner als die doppelten alten) setzt der Hud 1,36
-const LOCAL_KINDS := ["slash", "bash", "bite", "heal", "notes", "shield", "ring", "spark", "muzzle"]
+const LOCAL_KINDS := ["slash", "bash", "bite", "heal", "notes", "shield", "ring", "spark", "muzzle", "star"]
 
 
 ## base: die Kamera der Bühne (Wackeln, Schub); sie muss hier mitgegeben werden, weil jede Wirkung ihre eigene Matrix setzt.
@@ -269,8 +282,26 @@ func draw(ci: CanvasItem, base: Transform2D = Transform2D.IDENTITY) -> void:
 				_muzzle(ci, it, u)
 			"spark":
 				_spark(ci, it, u)
+			"star":
+				_star(ci, it, u)
 		if local:
 			ci.draw_set_transform_matrix(base)
+
+
+## Stern am Einschlag: n kurze Strahlen, die schnell auseinanderfliegen und verblassen (Stufe 1: 4 x 9 px, 2: 6 x 12, 3 und 4: 12 x 22 und 12 x 12).
+func _star(ci: CanvasItem, it: Dictionary, u: float) -> void:
+	var c := Vector2(float(it["x"]), float(it["y"]))
+	var n := int(it.get("n", 6))
+	var r := float(it.get("r", 12.0))
+	var col: Color = it.get("col", Color(1.0, 0.95, 0.75))
+	var rot := float(it.get("rot", 0.0))
+	var inner := r * (0.25 + 0.6 * u)
+	var outer := r * (0.5 + 0.9 * u)
+	var al := 1.0 - u * u
+	for i in n:
+		var ang := rot + TAU * float(i) / float(n)
+		var dv := Vector2(cos(ang), sin(ang))
+		ci.draw_line(c + dv * inner, c + dv * outer, Color(col, col.a * al), 1.0 if r < 15.0 else 2.0)
 
 
 func _slash(ci: CanvasItem, it: Dictionary, u: float) -> void:

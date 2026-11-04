@@ -2172,6 +2172,16 @@ func _fx_impact(att: Combat.Fighter, tgt: Combat.Fighter, sk: String, level: int
 		_fx.add("spark", {"x": hx, "y": hy, "col": Color(1.0, 0.95, 0.75), "n": spark, "dir": -dirv}, 0.0, 0.35)
 	if level >= FightLevel.HEAVY:
 		_fx.add("dust", {"x": hx}, 0.05, 0.45)
+	# Stern am Einschlag (SPEC 3.9): wächst mit der Stufe
+	var sc := Color(1.0, 0.95, 0.75) if not crit else Color(1.0, 0.85, 0.35)
+	match level:
+		FightLevel.NORMAL:
+			_fx.add("star", {"x": hx, "y": hy, "n": 4, "r": 9.0, "col": sc}, 0.0, 0.14)
+		FightLevel.HEAVY:
+			_fx.add("star", {"x": hx, "y": hy, "n": 6, "r": 12.0, "col": sc}, 0.0, 0.16)
+		FightLevel.CRIT, FightLevel.KILL:
+			_fx.add("star", {"x": hx, "y": hy, "n": 12, "r": 22.0, "col": sc}, 0.0, 0.18)
+			_fx.add("star", {"x": hx, "y": hy, "n": 12, "r": 12.0, "col": Color(1, 1, 1), "rot": 0.26}, 0.0, 0.18)
 
 
 ## Antwort der Anzeige auf die Cues der Regie: Klänge, Wirkungen, Zahlen und Ansagen.
@@ -2206,7 +2216,7 @@ func _on_cue(kind: String, d: Dictionary) -> void:
 				if crit:
 					Sfx.play("clash", -6.0)
 				if lv >= FightLevel.HEAVY:
-					Sfx.play("thud", -6.0 + (6.0 if crit else 0.0))
+					Sfx.play("bash", -6.0 + (6.0 if crit else 0.0))  # schwerer Treffer: dumpfe Schicht darunter
 			_fx_impact(d["att"], tgt, sk2, lv, crit, int(d["n"]))
 		"miss":
 			Sfx.play("whiff")
@@ -2249,6 +2259,8 @@ func _on_cue(kind: String, d: Dictionary) -> void:
 			_fx.add("ring", {"x": (d["pos"] as Vector2).x, "y": (d["pos"] as Vector2).y, "r": float(d["radius"]) * 0.7, "col": Color(d["col"] as Color, 0.7), "w": 1.0}, 0.0, float(d["dur"]) + 0.25)
 		"mood":
 			_fx.flash(Color(d["col"] as Color, float(d["amount"])), float(d["dur"]) + 0.1)
+		"sfx":
+			Sfx.play(String(d["name"]), float(d.get("db", 0.0)), 0.0, float(d.get("pitch", 0.0)))
 		"lightning":
 			_fx.flash(Color(1, 1, 1, 0.5), 0.35)
 
@@ -2386,6 +2398,8 @@ func _draw_big(v: FightViews.FigView, frame: String, x: float, tint: Color, xf: 
 	elif frame.begins_with("windup"):
 		col = 4
 		sy = 1.0 + (0.03 if frame.ends_with("0") else 0.07)
+	elif frame.begins_with("cast") or frame.begins_with("block"):
+		col = 4  # Tinte, Quetschen: der Körper spannt sich
 	elif frame.begins_with("strike") or frame.begins_with("follow"):
 		col = 2
 		sy = 0.97
@@ -2647,8 +2661,25 @@ func _draw_combat_view(mouse: Vector2) -> void:
 	_draw_tip(mouse)
 
 
+## Die Streifen der Figuren im Hintergrund laden, solange die Aufstellung offen ist (die Männer der Wahl und alle Gegner der Formation).
+func _prewarm_figs() -> void:
+	var ids: Array = []
+	for m in voy.fight_prep.get("party", []):
+		ids.append(String(Roles.FIG_IDS[clampi((m as CrewMember).role, 0, Roles.FIG_IDS.size() - 1)]))
+	var fd: Dictionary = Foes.FORMATIONS.get(String(voy.fight_prep.get("formation", "")), {})
+	for variant in fd.get("variants", []):
+		for k in variant:
+			if FigArt.has(String(k)):
+				ids.append(String(k))
+	for k2 in fd.get("units", []):
+		if FigArt.has(String(k2)):
+			ids.append(String(k2))
+	FigArt.prewarm(ids)
+
+
 ## Aufstellung: bis zu vier Kämpfer wählen; wer zuerst steht, kämpft vorn. Über den Symbolen wählt man die Fertigkeiten.
 func _draw_fight_prep(mouse: Vector2) -> void:
+	_prewarm_figs()
 	var panel := Rect2(14, 8, 452, 304)
 	UiSkin.panel(self, panel, UiSkin.BRONZE, 2, "tile_stone")
 	var reg := _loadout_man == null  # solange die Fertigkeitenwahl offen ist, bleibt alles dahinter stumm

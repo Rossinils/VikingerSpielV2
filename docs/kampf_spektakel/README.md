@@ -1,11 +1,15 @@
 ﻿# Kampf-Spektakel: Ergebnisse der Entwurfsrunde (Stand 2026-11-04)
 
-**Stand 2026-11-04 (später):** Ein erster sichtbarer Teil ist im Spiel (vereinfacht, ohne die Architektur aus `SPEC.md`):
-die Bühne mit fünf Orten und Licht (`scripts/fight_stage.gd`, `tools/make_stage_art.py`), die doppelt gezeichneten Kampffiguren
-(das "2x-Gerüst" der SPEC), das Fokus-Licht auf den Handelnden und die Ziele, mitwachsende Kampfeffekte, die Einstellung
-"Kampfbild: voll/schlicht". Ebenfalls fertig: das Fundament W1-01 (Ereignisfelder, `stage_t`, Verträge, `eventtest`).
-**Noch offen:** Körper-Rig mit Posen (W1-05 und W1b), Regie mit Beats und Kamera (W1-02), Wucht-Schrift und Zahlen (W1-07),
-Oberfläche mit Zugleiste und Fokusschild (W1-08), neue Klänge (W1-09). Das Spiel ist sonst unverändert.
+**Stand 2026-11-04 (später, zweiter Teil):** Im Spiel sind jetzt außer der Bühne auch die **Körperfiguren** (W1-05, W1b, W1-06: alle 23
+Menschen, Hund und Fangarm mit je 32 bzw. 21/23 Bildern, `assets/fig/`, `tools/make_fig_rig.py`) und die **Regie mit Kamerawucht**
+(W1-02 und W2-01 in der Kurzfassung: `scripts/fight_director.gd`, `beat_planner.gd`, `fight_cam.gd`; Standbild, Zeitlupe, Kamerafahrt,
+Wackeln, weißer Blitz, Rückstoß, Nachbilder, Stern am Einschlag, Licht je Rolle, Zeitbudget je Kampf, Kampfansicht voll/kurz). Geprüft
+mit `tools/figtest.gd` und `tools/directortest.gd` sowie einem Dauertest (`--fightsoak`). Abweichungen von der SPEC: die Rig-Zelle ist
+eingebaut in die vorhandene Bühne (Fußlinie 140 statt 172, `FightGeo` trägt die Maße des Spiels); die Anker stehen in `scripts/fig_atlas.gd`
+statt in einer JSON-Datei je Figur (ein exportiertes Spiel enthält keine losen JSON-Dateien); die Streifen haben eine zweite, weiße
+Zeile (Trefferblitz ohne Shader); der Kraken wird zur Laufzeit gestreckt und gesenkt, statt neue Bilder zu bekommen.
+**Noch offen:** Wucht-Schrift und Zahlenarten (W1-07), Oberfläche mit Zugleiste, Fokusschild und Statussymbolen (W1-08), neue Klänge
+(W1-09), `FightPresenter` als eigene Klasse (die Anbindung steckt noch in `hud.gd`), Spaltversatz bei schweren Treffern.
 
 * `SPEC.md` : der gemeinsame Plan (Zielbild, Architektur, Schnittstellenverträge, Wellen und Aufgabenkarten, Pflichtprüfungen, Risiken). Die Prüfung durch einen kritischen Helfer steht noch aus.
 * `D1_regie.md`, `D2_bild.md`, `D3_wucht.md` : die drei Entwürfe (Fokusführung, Bühne und Grafik, Effekte und Oberfläche).
