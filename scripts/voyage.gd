@@ -99,6 +99,7 @@ var combat_ctx: Dictionary = {}
 var fight_prep: Dictionary = {}  # Aufstellung vor dem Kampf: formation, units, party, pool, ctx
 var auto_combat := false  # Kämpfe ohne Ansicht auflösen (Bots, Tests, Einstellung "schnell")
 var _combat_t := 0.0
+var stage_t := 0.0  # Sekunden, die die Kampfregie noch braucht: der Gegnerzug und das Ende warten darauf (nur Anzeige)
 var combat_outro := 0.0  # Sekunden Schlussansage nach einem Deckkampf (nur im echten Spiel, sonst 0)
 var _outro_t := -1.0
 const COMBAT_PACE := 0.9  # Sekunden zwischen den Zügen im Deckkampf: so lange laufen Hiebe, Pfeile und Zahlen
@@ -2903,10 +2904,19 @@ func combat_flee() -> bool:
 	return combat != null and combat.hero_flee()
 
 
+## Die Kampfregie meldet, dass sie noch so lange inszeniert; nie mehr als 4 s, nie im Schnellmodus.
+func combat_stage(seconds: float) -> void:
+	if combat != null and not auto_combat:
+		stage_t = minf(maxf(stage_t, seconds), 4.0)
+
+
 func _tick_combat(delta: float) -> void:
 	if combat == null:
 		return
+	stage_t = maxf(stage_t - delta, 0.0)
 	if combat.state == "done":
+		if stage_t > 0.0:
+			return
 		if combat_outro > 0.0:
 			# Schlussansage (Sieg, Niederlage, Rückzug) im echten Spiel: erst warten, dann weiter
 			if _outro_t < 0.0:
@@ -2918,7 +2928,7 @@ func _tick_combat(delta: float) -> void:
 		return
 	if combat.state == "foe":
 		_combat_t -= delta
-		if _combat_t <= 0.0:
+		if _combat_t <= 0.0 and stage_t <= 0.0:
 			combat.act_foe()
 			_combat_t = COMBAT_PACE
 

@@ -2041,6 +2041,21 @@ func _init() -> void:
 	Persist.save_run(pv)
 	var saved := Persist.load_run()
 	check(saved.has("map") and saved.has("crew") and int(saved["mile"]) == pv.mile, "Spielstand ist lesbar")
+	Persist.save_run(pv)  # zweites Mal: die erste Fassung wird zur Sicherung
+	check(FileAccess.file_exists(Persist.run_path + ".bak") and not FileAccess.file_exists(Persist.run_path + ".tmp"), "Speichern: die vorige Fassung bleibt als Sicherung, keine Reste")
+	var cut := FileAccess.open(Persist.run_path, FileAccess.WRITE)
+	cut.store_string('{"map": [[{"sea": 1')  # wie nach einem Abbruch mitten im Schreiben
+	cut.close()
+	var rescued := Persist.load_run()
+	check(rescued.has("map") and rescued.has("crew") and int(rescued["mile"]) == pv.mile, "Speichern: eine abgeschnittene Datei fällt auf die Sicherung zurück")
+	Persist.save_run(pv)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Persist.run_path))  # wie nach einem Abbruch zwischen Löschen und Umbenennen
+	check(Persist.has_run() and Persist.resumable(Persist.load_run()), "Speichern: fehlt die Hauptdatei, wird die Sicherung fortgesetzt")
+	Persist.save_run(pv)
+	check(Persist.resumable(saved), "Spielstand enthält alle Schlüssel, die das Fortsetzen braucht")
+	var broken := saved.duplicate()
+	broken.erase("enc_done")
+	check(not Persist.resumable(broken) and not Persist.resumable({}), "ein Spielstand ohne Kernschlüssel wird nicht fortgesetzt (neue Fahrt statt Absturz)")
 	var rv := Voyage.new()
 	root.add_child(rv)
 	rv.resume(saved)
@@ -2105,6 +2120,10 @@ func _init() -> void:
 	check((mem["runs"] as Array).size() == 2 and int(mem["runs"][1]["n"]) == 2, "zweite Fahrt wird als Nummer 2 angehängt")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(Persist.memorial_path))
 	Persist.clear_run()
+	for suffix in [".bak", ".tmp"]:
+		for base in [Persist.run_path, Persist.memorial_path]:
+			if FileAccess.file_exists(base + suffix):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(base + suffix))
 	check(not Persist.has_run() and not FileAccess.file_exists(Persist.memorial_path), "Testdateien aufgeräumt")
 
 	# --- Spielautomaten ---

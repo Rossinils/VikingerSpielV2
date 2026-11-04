@@ -9,34 +9,82 @@ static var memorial_path := "user://gedenkstein.json"
 const MAX_RUNS := 40
 
 
+## Schlüssel, die Voyage.resume() ohne Vorgabewert liest: fehlt einer (beschädigte oder sehr alte Datei), wäre das Laden ein Absturz.
+const RESUME_KEYS := ["map", "crew", "fallen_names", "start_names", "mile", "pos", "hull", "proviant", "loot", "turns", "enc_done", "rescued"]
+
+
+## Kann dieser Spielstand fortgesetzt werden?
+static func resumable(d: Dictionary) -> bool:
+	for k in RESUME_KEYS:
+		if not d.has(k):
+			return false
+	return true
+
+
+## Gibt es etwas zum Fortsetzen? Auch die Sicherung zählt: bricht das Spiel beim Austauschen der Datei ab (Windows löscht
+## zuerst die alte), fehlt die Hauptdatei, die vorige gute Fassung liegt aber noch als .bak da.
 static func has_run() -> bool:
-	return FileAccess.file_exists(run_path)
+	return FileAccess.file_exists(run_path) or FileAccess.file_exists(run_path + ".bak")
 
 
 static func save_run(v: Voyage) -> void:
-	var f := FileAccess.open(run_path, FileAccess.WRITE)
-	if f != null:
-		f.store_string(JSON.stringify(v.to_dict()))
+	write_json_safe(run_path, JSON.stringify(v.to_dict()))
 
 
 static func load_run() -> Dictionary:
 	if not has_run():
 		return {}
-	var parsed = JSON.parse_string(FileAccess.get_file_as_string(run_path))
-	return parsed if parsed is Dictionary else {}
+	return read_json_safe(run_path)
 
 
 static func clear_run() -> void:
-	if has_run():
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(run_path))
+	for p in [run_path, run_path + ".bak", run_path + ".tmp"]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
 
 
 static func load_memorial() -> Dictionary:
-	if FileAccess.file_exists(memorial_path):
-		var parsed = JSON.parse_string(FileAccess.get_file_as_string(memorial_path))
-		if parsed is Dictionary and parsed.has("runs"):
-			return parsed
+	var parsed := read_json_safe(memorial_path)
+	if parsed.has("runs"):
+		return parsed
 	return {"runs": []}
+
+
+## Schreibt erst in <pfad>.tmp und tauscht dann aus, damit ein Abbruch mitten im Schreiben (Fenster zu, Absturz, voller
+## Datenträger) nie die einzige gute Datei zerstört; die vorige gute Fassung bleibt als <pfad>.bak liegen.
+static func write_json_safe(path: String, text: String) -> bool:
+	var tmp := path + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(text)
+	var ok := f.get_error() == OK
+	f.close()
+	if not ok:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+		return false
+	var abs_dst := ProjectSettings.globalize_path(path)
+	if FileAccess.file_exists(path) and read_json_safe_one(path) != null:
+		DirAccess.copy_absolute(abs_dst, abs_dst + ".bak")
+	return DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), abs_dst) == OK
+
+
+## Liest eine JSON-Datei (Dictionary); ist sie unlesbar oder abgeschnitten, kommt die Sicherung <pfad>.bak dran. Sonst {}.
+static func read_json_safe(path: String) -> Dictionary:
+	for p in [path, path + ".bak"]:
+		var parsed = read_json_safe_one(p)
+		if parsed is Dictionary:
+			return parsed
+	return {}
+
+
+static func read_json_safe_one(path: String) -> Variant:
+	if not FileAccess.file_exists(path):
+		return null
+	var json := JSON.new()  # parse() meldet Fehler als Rückgabewert, parse_string() druckt sie ins Log
+	if json.parse(FileAccess.get_file_as_string(path)) != OK:
+		return null
+	return json.data if json.data is Dictionary else null
 
 
 static func entry_for(v: Voyage, number: int) -> Dictionary:
@@ -80,6 +128,4 @@ static func add_memorial(v: Voyage) -> void:
 	if runs.size() > MAX_RUNS:
 		runs = runs.slice(runs.size() - MAX_RUNS)
 	data["runs"] = runs
-	var f := FileAccess.open(memorial_path, FileAccess.WRITE)
-	if f != null:
-		f.store_string(JSON.stringify(data))
+	write_json_safe(memorial_path, JSON.stringify(data))

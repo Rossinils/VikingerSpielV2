@@ -46,6 +46,7 @@ var _active: AudioStreamPlayer = null
 var _current := -1
 var _since := 0.0
 var _streams: Dictionary = {}
+var _missing: Dictionary = {}  # Stücke ohne Datei (Musik/ liegt nicht im Repository): bleiben still, ohne Fehlermeldung
 var _positions: Dictionary = {}
 var _rescue_hold := false
 var _last_menu := false
@@ -60,7 +61,13 @@ func _ready() -> void:
 	_load_settings()
 	AudioServer.set_bus_mute(0, muted)
 	for t in TRACKS:
-		ResourceLoader.load_threaded_request(String(TRACKS[t]["path"]))
+		var path := String(TRACKS[t]["path"])
+		if ResourceLoader.exists(path):
+			ResourceLoader.load_threaded_request(path)
+		else:
+			_missing[t] = true
+	if not _missing.is_empty():
+		print("Hinweis: %d von %d Musikstücken fehlen (Musik/ liegt nicht im Repository, siehe README); das Spiel läuft ohne diese Stücke." % [_missing.size(), TRACKS.size()])
 
 
 func _process(delta: float) -> void:
@@ -107,6 +114,8 @@ func _desired() -> int:
 func _stream_for(track: int) -> AudioStream:
 	if _streams.has(track):
 		return _streams[track]
+	if _missing.has(track):
+		return null
 	var path := String(TRACKS[track]["path"])
 	if ResourceLoader.load_threaded_get_status(path) == ResourceLoader.THREAD_LOAD_LOADED:
 		var res := ResourceLoader.load_threaded_get(path) as AudioStream
