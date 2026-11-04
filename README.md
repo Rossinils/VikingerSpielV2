@@ -101,6 +101,13 @@ Aufruf: `python -X utf8 -I tools/make_art.py`. Danach `tools/dev/rungd.sh import
 
 ## Windows-Export
 
-`export_presets.cfg` enthält das Preset „Windows Desktop“ (eine `Halt Kurs.exe` mit eingebettetem Paket, Ziel `build/`).
-Es braucht die Godot-Exportvorlagen 4.7.2 (Editor → *Projekt → Exportieren*, oder
-`godot --headless --path . --export-release "Windows Desktop"`). Die Datei ist nicht signiert; Windows warnt beim ersten Start.
+`export_presets.cfg` enthält das Preset „Windows Desktop“ (eine `Halt Kurs.exe` mit eingebettetem Paket, Ziel `build/`, steht in `.gitignore`).
+
+* **Ein Befehl** (Linux/macOS/Git Bash): `tools/dev/export_windows.sh` erzeugt `build/Halt Kurs.exe` und `build/Halt_Kurs_Windows.zip`
+  (mit `LIES MICH.txt`, etwa 115 MB bzw. 43 MB). Ein zweiter Export liefert bitgleich dieselbe Datei.
+* **Vorlagen:** Godot braucht die Exportvorlagen 4.7.2. Im Editor: *Projekt → Exportieren → Exportvorlagen verwalten → Herunterladen*.
+  Per Hand genügt `windows_release_x86_64.exe` samt `version.txt` in `~/.local/share/godot/export_templates/4.7.2.stable/`
+  (Windows: `%APPDATA%\Godot\export_templates\4.7.2.stable\`).
+* **Musik:** Die Exe enthält, was in `Musik/` liegt. Das Skript erzeugt bei Bedarf die vier Hintergrundstücke; die Lieder mit Gesang
+  kommen nur mit, wenn sie in `Musik/` liegen. Für die volle Fassung also dort exportieren, wo dein `Musik/`-Ordner liegt.
+* Die Datei ist nicht signiert; Windows warnt beim ersten Start („Weitere Informationen → Trotzdem ausführen“).
