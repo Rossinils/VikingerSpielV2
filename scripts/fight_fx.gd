@@ -137,6 +137,29 @@ func show_big(text: String, sub: String, col: Color, dur: float = 2.0) -> void:
 	big = {"text": text, "sub": sub, "col": col, "t": dur, "dur": dur}
 
 
+## Mit der Regie (scripts/fight_director.gd) liefert sie die Uhren: die Wirkungen laufen in Bühnenzeit (im Standbild stehen sie, in der
+## Zeitlupe gehen sie langsamer), Banner, Ansagen, Blitz und Wackeln in Echtzeit. Standbild, Zeitlupe und Zoom der alten Fassung entfallen.
+var external_clock := false
+
+
+func tick_ext(stage_dt: float, real_dt: float) -> void:
+	for it in items:
+		it["age"] = float(it["age"]) + stage_dt
+		if String(it["k"]) == "cue" and float(it["age"]) >= 0.0 and not bool(it.get("done", false)):
+			it["done"] = true
+			_do_cue(it)
+	items = items.filter(func(d: Dictionary) -> bool: return float(d["age"]) <= float(d["dur"]) and not bool(d.get("done", false)))
+	if not banner.is_empty():
+		banner["t"] = float(banner["t"]) - real_dt
+		if float(banner["t"]) <= 0.0:
+			banner = {}
+	if not big.is_empty():
+		big["t"] = float(big["t"]) - real_dt
+		if float(big["t"]) <= 0.0:
+			big = {}
+	_flash_t = maxf(_flash_t - real_dt, 0.0)
+
+
 ## Zeit vergeht; false, solange das Bild kurz eingefroren ist (dann soll auch die Anzeige warten).
 func tick(delta: float) -> bool:
 	if freeze > 0.0:
@@ -201,7 +224,7 @@ func flash_color() -> Color:
 
 
 ## Maßstab der Wirkungen um ihren Ankerpunkt: die Kampffiguren sind doppelt so groß wie früher, die Wirkungen wachsen mit.
-const LOCAL_SCALE := 1.7
+static var local_scale := 1.7  # mit den Rig-Figuren (kleiner als die doppelten alten) setzt der Hud 1,36
 const LOCAL_KINDS := ["slash", "bash", "bite", "heal", "notes", "shield", "ring", "spark", "muzzle"]
 
 
@@ -216,7 +239,7 @@ func draw(ci: CanvasItem, base: Transform2D = Transform2D.IDENTITY) -> void:
 		if local:
 			var ax := float(it["x"])
 			var ay := float(it["y"])
-			ci.draw_set_transform_matrix(base * Transform2D(Vector2(LOCAL_SCALE, 0.0), Vector2(0.0, LOCAL_SCALE), Vector2(ax * (1.0 - LOCAL_SCALE), ay * (1.0 - LOCAL_SCALE))))
+			ci.draw_set_transform_matrix(base * Transform2D(Vector2(local_scale, 0.0), Vector2(0.0, local_scale), Vector2(ax * (1.0 - local_scale), ay * (1.0 - local_scale))))
 		match String(it["k"]):
 			"slash":
 				_slash(ci, it, u)

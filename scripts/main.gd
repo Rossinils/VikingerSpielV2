@@ -45,6 +45,8 @@ var _shot_fight := 0  # Deckkampf: 1 Aufstellung, 2 Kampf, 3 Kampf mit gewählte
 var _shot_form := ""  # --shotform=draugr|raeuber|haendler|dorf|kraken: Ort des Deckkampfs bei --shotfight2/3
 var _shot_kraken := 0  # Deckkampf gegen den Kraken: 1 mit Griff und Tinte, 2 Körper offen und spannt sich (--shotkraken, --shotkraken2)
 var _shot_fx := 0  # Deckkampf mitten im Schuss (1, --shotfx), Hieb (2, --shotfx2) oder Musketenschuss (3, --shotfx3)
+var _shot_kill := false  # --shotkill: wie --shotfx2, aber der Gegner hat nur noch 1 Kraft und fällt (Todesstoß, Kamera, Zeitlupe)
+var _shot_crit := false  # --shotcrit: der Hieb trifft kritisch
 var _shot_loadout := false  # Aufstellung mit der Fertigkeitenwahl des Musketiers (--shotloadout)
 var _shot_snap := ""  # Deckkampf mit Heldenmut (--shotheroic) oder Zusammenbruch (--shotsnap)
 var _shot_tavern := false  # Hafen mit Taverne und Reserve (--shottavern)
@@ -132,6 +134,10 @@ func _ready() -> void:
 			_shot_loadout = true
 		elif arg == "--shotfx" or arg == "--shotfx2" or arg == "--shotfx3":
 			_shot_fx = int(arg.substr(arg.length() - 1)) if arg != "--shotfx" else 1
+		elif arg == "--shotkill" or arg == "--shotcrit":
+			_shot_fx = 2
+			_shot_kill = arg == "--shotkill"
+			_shot_crit = arg == "--shotcrit"
 		elif arg == "--shotheroic" or arg == "--shotsnap":
 			_shot_snap = "heroic" if arg == "--shotheroic" else "break"
 		elif arg == "--shottavern":
@@ -332,6 +338,10 @@ func _ready() -> void:
 				break
 			xg += 1
 		xc.events.clear()
+		if _shot_kill:
+			xc.foes[0].hp = 1.0
+		if _shot_crit:
+			xc.heroes[0].crit_bonus = 100.0
 		_voy.combat_act("b_schuss" if _shot_fx == 1 else ("a_hieb" if _shot_fx == 2 else "m_schuss"), xc.foes[0])
 		_voy._combat_t = 9999.0
 	if _shot_snap != "":  # Screenshot: ein Mann kippt mitten im Kampf
@@ -679,6 +689,12 @@ func _setting_click(id: String) -> void:
 			Settings.save_all()
 		"tstage":
 			Settings.stage_fx = 0 if Settings.stage_fx != 0 else 1  # Kampfbild: voll (Nebel, Glanz, Regen, Blitz) oder schlicht
+			Settings.save_all()
+		"tview":
+			Settings.fight_view = 1 if Settings.fight_view == 0 else 0  # Kampfansicht: voll (Zoom, Zeitlupe, Standbild) oder kurz (halbe Zeiten)
+			Settings.save_all()
+		"tshake":
+			Settings.shake = (Settings.shake + 2) % 3  # Wackeln: normal -> schwach -> aus
 			Settings.save_all()
 		"tback":
 			_hud.settings_open = false

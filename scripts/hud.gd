@@ -1248,8 +1248,12 @@ func _draw_settings(mouse: Vector2) -> void:
 	rows.append(["Hilfe beim Start", "an" if Settings.help_at_start else "aus", "thelp", "thelp"])
 	rows.append(["Kämpfe", "schnell" if Settings.auto_combat else "von Hand", "tfight", "tfight"])
 	rows.append(["Kampfbild", "voll" if Settings.stage_fx != 0 else "schlicht", "tstage", "tstage"])
+	rows.append(["Kampfansicht", "voll" if Settings.fight_view == 0 else "kurz", "tview", "tview"])
+	rows.append(["Wackeln", ["aus", "schwach", "normal"][clampi(Settings.shake, 0, 2)], "tshake", "tshake"])
+	var step := 24.0 if rows.size() <= 7 else 19.0  # mit allen Zeilen rückt es enger zusammen, damit „Zurück“ noch auf den Schirm passt
+	var y0 := 98.0 if rows.size() <= 7 else 86.0
 	for i in rows.size():
-		var y := 98.0 + float(i) * 24.0
+		var y := y0 + float(i) * step
 		_t(Vector2(120, y + 12), String(rows[i][0]), PAPER, 11)
 		var minus := Rect2(274, y, 18, 18)
 		var plus := Rect2(380, y, 18, 18)
@@ -1265,7 +1269,7 @@ func _draw_settings(mouse: Vector2) -> void:
 				UiSkin.button(self, br, UiSkin.State.HOVER if hv else UiSkin.State.NORMAL)
 				_t(Vector2(br.position.x, br.position.y + 13), String(pair[1]), PAPER, 11, HORIZONTAL_ALIGNMENT_CENTER, br.size.x)
 				_register(br, String(pair[2]))
-	var back := Rect2(150, 98.0 + float(rows.size()) * 24.0 + 14.0, 180, 18)
+	var back := Rect2(150, y0 + float(rows.size()) * step + 8.0, 180, 18)
 	var hb := back.has_point(mouse)
 	_t(Vector2(back.position.x, back.position.y + 13), "Zurück", GOLD if hb else PAPER, 11, HORIZONTAL_ALIGNMENT_CENTER, back.size.x)
 	_register(back, "tback")
@@ -1793,22 +1797,18 @@ var _fight_move := false  # "Reihe wechseln": der Mann, mit dem getauscht wird, 
 var _fight_actor: Combat.Fighter = null
 var _combat_tex: Texture2D = null
 var _big_tex: Dictionary = {}  # Riesenfiguren (Kraken) je Gegnerart
-var _anim: Dictionary = {}  # Kämpfer -> {"kind": attack|hit, "t": Restzeit}
 var _floats: Array = []  # schwebende Zahlen: {"x", "y", "text", "col", "t", "big"}
-var _ghosts: Array = []  # Gefallene, die noch ausblenden: {"f", "t"}
-var _ev_seen := 0
 var _ev_combat: Combat = null
-var _ev_stagger := 0  # wievielter Treffer des laufenden Zuges, damit Mehrfachtreffer nacheinander klingen
 var _outro_for: Combat = null  # der Kampf, für den die Schlussansage (Sieg, Niederlage, Rückzug) schon lief
-var _intro_pending := false
 var _forge_man: CrewMember = null  # Schmiede: der gewählte Mann
 var _loadout_man: CrewMember = null  # in der Aufstellung: wessen Fertigkeiten gerade gewählt werden
 var _ev_actor: Combat.Fighter = null  # wer zuletzt zugeschlagen hat (Start der Pfeile und Fangarme)
 var _ev_sk := ""
 var _fx := FightFx.new()  # Hiebbögen, Pfeile, Leuchten, Banner, Wackeln (scripts/fight_fx.gd)
-var _lit := {}  # Kämpfer -> wie hell er steht (0,5 .. 1,0), wechselt weich: der Handelnde im Licht, die anderen im Halbdunkel
 var _stage_dim := 0.0  # Abdunkelung des Hintergrunds, solange jemand handelt
 var _stage_xf := Transform2D.IDENTITY  # Kamera der Bühne (Wackeln und Schub), für die Kampfeffekte
+var _dir: FightDirector = null  # die Kampfregie (scripts/fight_director.gd); kopflos null
+var _clock := 0.0  # Uhr der Anzeige (Atmen der Figuren), läuft in Echtzeit
 
 
 ## Klicks und Tasten im Deckkampf (Aufstellung und Kampf).
@@ -1931,17 +1931,26 @@ func _big_texture(kind: String) -> Texture2D:
 	return _big_tex[kind]
 
 
-## Riesenfiguren stehen immer ganz rechts, hinter den anderen Gegnern.
+## Wo die Fußmitte einer Figur gerade steht (mit der Regie: gezeigte Stelle, sie gleitet beim Nachrücken). Riesen stehen ganz rechts.
 func _fig_x(f: Combat.Fighter) -> float:
+	if _dir != null and _dir.ok:
+		return _dir.fig(f).x
 	if _is_big(f):
 		return FIGHT_BIG_X
 	return FIGHT_HERO_X[f.rank] if f.side == 0 else FIGHT_FOE_X[f.rank]
 
 
+## Höhe über den Füßen für Wirkungen und Zahlen. Die Werte im Code stammen von den alten, doppelt gezeichneten Figuren (82 px), die
+## Rig-Figuren sind kleiner (64 px).
+func _ry(off: float) -> float:
+	return FIGHT_FEET - off * (0.72 if FigArt.rig else 1.0)
+
+
 func _fighter_rect(f: Combat.Fighter) -> Rect2:
 	if _is_big(f):
 		return Rect2(_fig_x(f) - 70.0, FIGHT_FEET - 150.0, 140.0, 156.0)
-	return Rect2(_fig_x(f) - 28.0, FIGHT_FEET - 100.0, 56.0, 106.0)
+	var h := 84.0 if FigArt.rig else 100.0
+	return Rect2(_fig_x(f) - 28.0, FIGHT_FEET - h, 56.0, h + 6.0)
 
 
 func _fig_row(f: Combat.Fighter) -> int:
@@ -1973,138 +1982,49 @@ func _status_text(f: Combat.Fighter) -> String:
 	return s
 
 
-## Ereignisse des Kampfes in Bewegung, Wirkung und Klang übersetzen. Treffer wirken erst, wenn Hieb oder Pfeil ankommt.
+## Beginn eines Kampfes im Bild: alles Alte zurücksetzen, die Regie bauen (kopflos gibt es keine).
+func _fight_begin(c: Combat) -> void:
+	_ev_combat = c
+	_floats.clear()
+	_fx.clear()
+	_ev_actor = null
+	_ev_sk = ""
+	_outro_for = null
+	_stage_dim = 0.0
+	FigArt.init()
+	FightFx.local_scale = 1.36 if FigArt.rig else 1.7
+	FightGeo.rig = FigArt.rig
+	if _dir != null:
+		_dir.end()
+		_dir = null
+	var use_dir := DisplayServer.get_name() != "headless"  # kopflos wird nicht gezeichnet; im Schnellmodus gibt es nur den Endzustand (feed: mehr als 24 frische Ereignisse)
+	if use_dir:
+		_dir = FightDirector.new(FightDirector.Mode.SHORT if Settings.fight_view == 1 else FightDirector.Mode.FULL)
+		_dir.begin(c)
+		_dir.cue.connect(_on_cue)
+		_fx.external_clock = true
+	else:
+		_fx.external_clock = false
+
+
+## Der Kampf ist aus dem Bild: Regie und Zwischenspeicher der Figuren freigeben.
+func _fight_end() -> void:
+	if _dir != null:
+		_dir.end()
+		_dir = null
+	_fx.external_clock = false
+	_fx.clear()
+	_floats.clear()
+	_ev_combat = null
+	FigArt.release()
+
+
+## Neue Ereignisse des Kampfes: die Regie schneidet sie in Beats und spielt sie ab (kopflos gibt es keine Regie und nichts zu zeichnen).
 func _fight_events(c: Combat) -> void:
 	if c != _ev_combat:
-		_ev_combat = c
-		_ev_seen = 0
-		_anim.clear()
-		_floats.clear()
-		_ghosts.clear()
-		_fx.clear()
-		_ev_actor = null
-		_ev_sk = ""
-		_outro_for = null
-		_intro_pending = true
-		_lit.clear()
-		_stage_dim = 0.0
-	# Läuft ein schnell aufgelöster Kampf erst jetzt auf, würden Hunderte Klänge auf einmal losgehen: dann still bleiben
-	var fresh := 0
-	for ev in c.events:
-		if int(ev["id"]) > _ev_seen:
-			fresh += 1
-	var loud := fresh <= 24
-	if _intro_pending:
-		_intro_pending = false
-		if c.round_no <= 1 and loud:
-			var boss := c.formation == "kraken"
-			_fx.show_big("DER KRAKEN" if boss else "KAMPF", "Fangarme zuerst, dann der Körper" if boss else String(Foes.FORMATIONS[c.formation]["name"]), Color(0.9, 0.35, 0.35), 1.9 if boss else 1.5)
-			_fx.flash(Color(0, 0, 0, 0.5), 0.7)
-			_slow(1.8)
-	for ev in c.events:
-		var id := int(ev["id"])
-		if id <= _ev_seen:
-			continue
-		_ev_seen = id
-		var who: Combat.Fighter = ev["who"]
-		var fx := _fig_x(who)
-		var sk := String(ev.get("sk", ""))
-		var hw := 0.2 + 0.13 * float(_ev_stagger)  # wann der nächste Treffer dieses Zuges ankommt
-		match String(ev["type"]):
-			"attack":
-				_ev_actor = who
-				_ev_sk = sk
-				_ev_stagger = 0
-				var mv := 1.0 if FightFx.lunges(sk) else (-0.3 if FightFx.is_flight(sk) else 0.0)
-				_anim[who] = {"kind": "attack", "t": 0.42, "mv": mv}
-				if loud:
-					Sfx.play(Sfx.skill_sound(sk, "go"))
-					_fx_go(c, who, sk)
-					var sname := _skill_label(sk)
-					if sname != "":
-						_fx.show_banner(sname, who.name if who.side == 0 else String(Foes.info(who.kind).get("short", who.name)), who.side, Roles.icon_of(sk))
-			"hit":
-				var crit := bool(ev["crit"])
-				var dmg := int(ev["n"])
-				_anim[who] = {"kind": "hit", "t": 0.42, "wait": hw}
-				_floats.append({"x": fx, "y": FIGHT_FEET - 92.0, "text": "−%d" % dmg, "col": GOLD if crit else (Color(0.95, 0.45, 0.4) if who.side == 0 else PAPER), "t": 1.0, "big": crit, "wait": hw})
-				if loud:
-					Sfx.play(Sfx.skill_sound(sk, "hit"), 2.0 if crit else 0.0, hw)
-					if crit:
-						Sfx.play("clash", -6.0, hw)
-					_fx_hit(who, sk, hw, crit, dmg)
-					_ev_stagger += 1
-			"miss":
-				_anim[who] = {"kind": "dodge", "t": 0.3, "wait": hw}
-				_floats.append({"x": fx, "y": FIGHT_FEET - 88.0, "text": "verfehlt", "col": Color(DIM, 0.95), "t": 0.9, "big": false, "wait": hw})
-				if loud:
-					Sfx.play("whiff", 0.0, hw)
-					_fx_miss(who, sk, hw)
-					_ev_stagger += 1
-			"heal":
-				_floats.append({"x": fx, "y": FIGHT_FEET - 92.0, "text": "+%d" % int(ev["n"]), "col": GREEN, "t": 1.0, "big": false, "wait": 0.25})
-				if loud:
-					Sfx.play("heal", 0.0, 0.25)
-					_fx.add("heal", {"x": fx, "y": FIGHT_FEET - 68.0}, 0.25, 0.9)
-			"die":
-				var hold := 0.2 + 0.13 * float(maxi(_ev_stagger - 1, 0))
-				var big := _is_big(who)
-				_ghosts.append({"f": who, "t": hold + (1.2 if big else 0.7)})
-				if loud:
-					Sfx.play("kraken_roar" if big else ("tentacle" if who.kind == "tentakel" else ("bones" if who.kind in ["knochen", "rost", "bogner"] else "fall")), 0.0, hold + 0.1)
-					_fx.cue("shake", {"amp": 7.0 if big else 3.0, "d": 0.7 if big else 0.3}, hold)
-					_fx.cue("freeze", {"d": 0.09}, hold)
-					if big:
-						_fx.cue("flash", {"col": Color(1, 1, 1, 0.5), "d": 0.6}, hold)
-					_slow(1.2)
-					var focus := Vector2(fx, FIGHT_FEET - 60.0)
-					if who.side == 0:
-						_fx.cue("slowmo", {"f": 0.35, "d": 0.8}, hold)
-						_fx.cue("zoom", {"amp": 0.08, "d": 0.8, "fx": fx, "fy": focus.y}, hold)
-						if _fx.big.is_empty():
-							_fx.show_big("GEFALLEN", "%s kehrt nicht zurück" % who.name, Color(0.9, 0.35, 0.35), 1.7)
-							_slow(1.9)
-					elif c.foes.is_empty() and c.heroes.size() > 0:
-						_fx.cue("slowmo", {"f": 0.3, "d": 1.0}, hold)
-						_fx.cue("zoom", {"amp": 0.11, "d": 1.0, "fx": fx, "fy": focus.y}, hold)
-			"overboard":
-				_ghosts.append({"f": who, "t": 0.7})
-				_floats.append({"x": fx, "y": FIGHT_FEET - 92.0, "text": "über Bord!", "col": Color(0.6, 0.8, 0.95), "t": 1.3, "big": true, "wait": 0.0})
-				if loud:
-					Sfx.play("splash", 0.0, 0.3)
-					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 40.0, "r": 22.0, "col": Color(0.6, 0.8, 0.95, 0.9), "w": 2.0}, 0.2, 0.6)
-					_fx.cue("shake", {"amp": 2.5, "d": 0.25}, 0.2)
-			"spawn":
-				var stx := String(ev.get("text", ""))
-				_floats.append({"x": fx, "y": FIGHT_FEET - 92.0, "text": stx if stx != "" else "wächst nach", "col": VIOLET, "t": 1.2, "big": false, "wait": 0.0})
-				if loud:
-					Sfx.play("bones" if stx == "beschworen" else "tentacle", -3.0)
-					_fx.add("dust", {"x": fx}, 0.0, 0.6)
-					_fx.cue("shake", {"amp": 1.5, "d": 0.2}, 0.0)
-			"text":
-				var tx := String(ev.get("text", ""))
-				var tcol := GREEN if tx == "frei!" else (RED if tx in ["gepackt!", "spannt sich!", "rastet aus!"] else Color(0.75, 0.7, 0.95))
-				_floats.append({"x": fx, "y": FIGHT_FEET - (150.0 if _is_big(who) else 92.0), "text": tx, "col": tcol, "t": 1.4, "big": tx in ["spannt sich!", "unterbrochen!"], "wait": 0.0})
-				if loud and tx == "spannt sich!":
-					Sfx.play("kraken_roar")
-					_fx.cue("shake", {"amp": 2.0, "d": 0.5}, 0.0)
-				elif loud and tx == "gepackt!":
-					Sfx.play("tentacle", 0.0, 0.2)
-			"heroic":
-				if loud:
-					Sfx.play("heroic")
-					_fx.show_big("HELDENMUT", "%s: %s" % [who.name, String(ev.get("text", ""))], GOLD, 2.3)
-					_fx.flash(Color(1.0, 0.85, 0.4, 0.4), 0.55)
-					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 52.0, "r": 40.0, "col": Color(1.0, 0.85, 0.4, 0.9), "w": 2.0}, 0.0, 0.8)
-					_fx.add("ring", {"x": fx, "y": FIGHT_FEET - 52.0, "r": 24.0, "col": Color(1.0, 1.0, 0.8, 0.9), "w": 1.0}, 0.15, 0.7)
-					_slow(2.4)
-			"snap":
-				if loud:
-					Sfx.play("snap")
-					_fx.show_big("ZUSAMMENBRUCH", "%s: %s" % [who.name, String(ev.get("text", ""))], Color(0.9, 0.35, 0.35), 2.3)
-					_fx.flash(Color(0.45, 0.0, 0.1, 0.45), 0.6)
-					_fx.cue("shake", {"amp": 4.0, "d": 0.5}, 0.0)
-					_slow(2.4)
+		_fight_begin(c)
+	if _dir != null and _dir.ok:
+		_dir.feed(c)
 
 
 ## Die Schlussansage: Sieg, Niederlage oder Rückzug, bevor es weitergeht.
@@ -2123,12 +2043,6 @@ func _fight_outro(c: Combat) -> void:
 			_fx.show_big("RÜCKZUG", "ihr zieht euch zurück", Color(0.75, 0.78, 0.82), voy.combat_outro)
 
 
-## Das Kampftempo dehnen, damit eine große Wirkung nicht vom nächsten Zug überrollt wird.
-func _slow(seconds: float) -> void:
-	if voy != null:
-		voy._combat_t = maxf(voy._combat_t, seconds)
-
-
 ## Name der Fertigkeit für das Banner; leer für alles ohne Namen.
 func _skill_label(sk: String) -> String:
 	if Roles.SKILLS.has(sk):
@@ -2138,272 +2052,396 @@ func _skill_label(sk: String) -> String:
 	return ""
 
 
+## Ein Wackeln der Bühne: mit der Regie über die Kamera, sonst über die alte Wirkungsliste.
+func _shake_cue(amp: float, dur: float, wait: float) -> void:
+	if _dir != null and _dir.ok:
+		var sk := 1.0 if Settings.shake == 2 else (0.5 if Settings.shake == 1 else 0.0)
+		_dir.camera().add_shake(amp * sk, dur, Vector2.RIGHT, 0.8)
+	else:
+		_fx.cue("shake", {"amp": amp, "d": dur}, wait)
+
+
 ## Wirkung beim Ausholen: Lieder, Schild, Klage, Tinte, Zerquetschen, Schüsse, Wut, Nachladen, Horn, Beschwörung.
 func _fx_go(c: Combat, who: Combat.Fighter, sk: String) -> void:
 	var gx := _fig_x(who)
-	var gy := FIGHT_FEET - 60.0
+	var gy := _ry(60.0)
 	var dirv := 1.0 if who.side == 0 else -1.0
 	match FightFx.go_fx(sk):
 		"shield":
-			_fx.add("shield", {"x": gx + 16.0 * dirv, "y": FIGHT_FEET - 52.0}, 0.0, 0.7)
+			_fx.add("shield", {"x": gx + 16.0 * dirv, "y": _ry(52.0)}, 0.0, 0.7)
 		"notes":
-			_fx.add("notes", {"x": gx, "y": FIGHT_FEET - 64.0, "col": Color(0.7, 0.85, 1.0)}, 0.0, 1.1)
+			_fx.add("notes", {"x": gx, "y": _ry(64.0), "col": Color(0.7, 0.85, 1.0)}, 0.0, 1.1)
 		"warsong":
-			_fx.add("notes", {"x": gx, "y": FIGHT_FEET - 64.0, "col": GOLD}, 0.0, 1.1)
+			_fx.add("notes", {"x": gx, "y": _ry(64.0), "col": GOLD}, 0.0, 1.1)
 			for h in c.heroes:
-				_fx.add("ring", {"x": _fig_x(h), "y": FIGHT_FEET - 48.0, "r": 16.0, "col": Color(GOLD, 0.9), "w": 1.0}, 0.2, 0.6)
+				_fx.add("ring", {"x": _fig_x(h), "y": _ry(48.0), "r": 16.0, "col": Color(GOLD, 0.9), "w": 1.0}, 0.2, 0.6)
 		"wail":
 			for i in 3:
-				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 60.0, "r": 90.0, "col": Color(0.6, 0.95, 0.8, 0.7), "w": 2.0}, float(i) * 0.15, 0.8)
+				_fx.add("ring", {"x": gx, "y": _ry(60.0), "r": 90.0, "col": Color(0.6, 0.95, 0.8, 0.7), "w": 2.0}, float(i) * 0.15, 0.8)
 		"ink":
 			_fx.add("ink", {}, 0.1, 1.3)
-			_fx.cue("shake", {"amp": 1.5, "d": 0.3}, 0.2)
+			_shake_cue(1.5, 0.3, 0.2)
 		"crush":
 			_fx.cue("flash", {"col": Color(0.5, 0.0, 0.05, 0.5), "d": 0.6}, 0.3)
-			_fx.cue("shake", {"amp": 6.0, "d": 0.7}, 0.3)
-			_slow(1.5)
+			_shake_cue(6.0, 0.7, 0.3)
 		"taunt":
 			for i in 2:
-				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 56.0, "r": 34.0, "col": Color(0.95, 0.4, 0.3, 0.9), "w": 2.0}, float(i) * 0.12, 0.6)
-			_fx.cue("shake", {"amp": 1.5, "d": 0.2}, 0.0)
+				_fx.add("ring", {"x": gx, "y": _ry(56.0), "r": 34.0, "col": Color(0.95, 0.4, 0.3, 0.9), "w": 2.0}, float(i) * 0.12, 0.6)
+			_shake_cue(1.5, 0.2, 0.0)
 		"rage":
 			for i in 3:
-				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 52.0, "r": 26.0, "col": Color(1.0, 0.45, 0.2, 0.9), "w": 2.0}, float(i) * 0.1, 0.5)
+				_fx.add("ring", {"x": gx, "y": _ry(52.0), "r": 26.0, "col": Color(1.0, 0.45, 0.2, 0.9), "w": 2.0}, float(i) * 0.1, 0.5)
 			_fx.cue("flash", {"col": Color(0.8, 0.15, 0.1, 0.28), "d": 0.3}, 0.0)
 		"reload":
 			_fx.add("ring", {"x": gx + 16.0 * dirv, "y": gy, "r": 10.0, "col": Color(0.85, 0.85, 0.9, 0.8), "w": 1.0}, 0.0, 0.35)
 			_fx.add("spark", {"x": gx + 16.0 * dirv, "y": gy, "col": Color(1.0, 0.85, 0.4), "n": 4, "dir": dirv}, 0.3, 0.4)
 		"horn":
 			for i in 3:
-				_fx.add("ring", {"x": gx, "y": FIGHT_FEET - 72.0, "r": 70.0, "col": Color(1.0, 0.7, 0.3, 0.7), "w": 2.0}, float(i) * 0.14, 0.7)
+				_fx.add("ring", {"x": gx, "y": _ry(72.0), "r": 70.0, "col": Color(1.0, 0.7, 0.3, 0.7), "w": 2.0}, float(i) * 0.14, 0.7)
 		"summon":
 			for i in 2:
-				_fx.add("ring", {"x": FIGHT_FOE_X[0], "y": FIGHT_FEET - 40.0, "r": 26.0, "col": Color(0.7, 0.4, 0.95, 0.9), "w": 2.0}, 0.15 + float(i) * 0.15, 0.7)
-			_fx.cue("shake", {"amp": 2.0, "d": 0.3}, 0.2)
+				_fx.add("ring", {"x": FIGHT_FOE_X[0], "y": _ry(40.0), "r": 26.0, "col": Color(0.7, 0.4, 0.95, 0.9), "w": 2.0}, 0.15 + float(i) * 0.15, 0.7)
+			_shake_cue(2.0, 0.3, 0.2)
 		"bullet":
 			# Mündungsfeuer sofort, alle Kugeln fliegen danach einzeln zu ihren Zielen
 			_fx.add("muzzle", {"x": gx + 26.0 * dirv, "y": gy, "dir": dirv}, 0.0, 0.9)
 			_fx.cue("flash", {"col": Color(1.0, 0.95, 0.8, 0.22), "d": 0.12}, 0.0)
-			_fx.cue("shake", {"amp": 2.0, "d": 0.18}, 0.0)
+			_shake_cue(2.0, 0.18, 0.0)
 
 
-## Wirkung eines Treffers am Ziel: Hieb, Pfeil und Kugel im Flug, Biss, Peitschenhieb; Funken; Wucht bei Krit und schwerem Schaden.
-func _fx_hit(who: Combat.Fighter, sk: String, hw: float, crit: bool, dmg: int) -> void:
-	var hx := _fig_x(who)
-	var hy := FIGHT_FEET - 60.0
-	var dirv := 1.0 if who.side == 1 else -1.0  # Richtung vom Angreifer zum Ziel
-	if FightFx.is_flight(sk) and _ev_actor != null and sk == _ev_sk:
-		var ax := _fig_x(_ev_actor)
-		match FightFx.go_fx(sk):
-			"arrow":
-				_fx.add("arrow", {"x": ax + dirv * 22.0, "y": hy, "x2": hx, "y2": hy}, maxf(hw - 0.2, 0.0), 0.2)
-			"bullet":
-				_fx.add("bullet", {"x": ax + dirv * 30.0, "y": hy, "x2": hx, "y2": hy}, maxf(hw - 0.09, 0.0), 0.09)
-			_:
-				_fx.add("whip", {"x": ax - dirv * 8.0, "y": FIGHT_FEET - 96.0, "x2": hx, "y2": hy}, maxf(hw - 0.22, 0.0), 0.45)
-		_fx.add("ring", {"x": hx, "y": hy, "r": 9.0, "col": Color(1, 1, 1, 0.8), "w": 1.0}, hw, 0.2)
+## Pfeil, Kugel oder Peitschenhieb fliegt los (Cue `go`): vom Angreifer zu jedem Ziel, ab `release` Sekunden, `contact` Sekunden bis zum Treffer
+## (beides Bühnenzeit ab jetzt). Der Start liegt an der Hand bzw. Waffenspitze der Rig-Figur.
+func _fx_flight(att: Combat.Fighter, tgt: Combat.Fighter, sk: String, release: float, contact: float, miss: bool) -> void:
+	if att == null or tgt == null or not FightFx.is_flight(sk):
+		return
+	var ax := _fig_x(att)
+	var hx := _fig_x(tgt)
+	var hy := _ry(60.0)
+	var dirv := 1.0 if tgt.side == 1 else -1.0  # Richtung vom Angreifer zum Ziel
+	var start := Vector2(ax + dirv * 22.0, hy)
+	if FigArt.rig and FigArt.has(FigArt.id_of(att)):
+		var an := FigArt.anchor(FigArt.id_of(att), "strike_0", "hand")
+		start = Vector2(ax + dirv * an.x, FIGHT_FEET - an.y)
+		if FightFx.go_fx(sk) == "bullet":
+			var tp := FigArt.anchor(FigArt.id_of(att), "strike_0", "tip")
+			start = Vector2(ax + dirv * tp.x, FIGHT_FEET - tp.y)
+	var dur := maxf(contact - release, 0.06)
+	var endp := Vector2(hx, hy)
+	if miss:
+		endp = Vector2(hx + dirv * 80.0, hy + 12.0)
+	match FightFx.go_fx(sk):
+		"arrow":
+			_fx.add("arrow", {"x": start.x, "y": start.y, "x2": endp.x, "y2": endp.y, "miss": miss}, release, dur)
+		"bullet":
+			_fx.add("bullet", {"x": start.x, "y": start.y, "x2": endp.x + (dirv * 40.0 if miss else 0.0), "y2": endp.y, "miss": miss}, release, dur)
+		_:
+			if not miss:
+				_fx.add("whip", {"x": start.x - dirv * 8.0, "y": _ry(80.0), "x2": endp.x, "y2": endp.y}, release, dur)
+	if not miss:
+		_fx.add("ring", {"x": hx, "y": hy, "r": 9.0, "col": Color(1, 1, 1, 0.8), "w": 1.0}, contact, 0.2)
+
+
+## Wirkung am Ziel im Augenblick des Treffers (Cue `impact`): Hieb, Biss, Funken und Blut nach Stufe.
+func _fx_impact(att: Combat.Fighter, tgt: Combat.Fighter, sk: String, level: int, crit: bool, dmg: int) -> void:
+	var hx := _fig_x(tgt)
+	var hy := _ry(60.0)
+	var dirv := 1.0 if tgt.side == 1 else -1.0
 	match FightFx.hit_fx(sk):
 		"slash":
-			_fx.add("slash", {"x": hx, "y": hy, "dir": dirv, "crit": crit}, hw, 0.28)
+			_fx.add("slash", {"x": hx, "y": hy, "dir": dirv, "crit": crit}, 0.0, 0.28)
 		"chop":
-			_fx.add("slash", {"x": hx, "y": hy, "dir": dirv, "heavy": true, "crit": crit}, hw, 0.34)
+			_fx.add("slash", {"x": hx, "y": hy, "dir": dirv, "heavy": true, "crit": crit}, 0.0, 0.34)
 		"bash":
-			_fx.add("bash", {"x": hx, "y": hy, "heavy": dmg >= 20}, hw, 0.3)
+			_fx.add("bash", {"x": hx, "y": hy, "heavy": dmg >= 20}, 0.0, 0.3)
 		"bite":
-			_fx.add("bite", {"x": hx, "y": hy}, hw, 0.4)
+			_fx.add("bite", {"x": hx, "y": hy}, 0.0, 0.4)
 	if sk == "f_kr_peitsche" or sk == "f_kr_griff" or sk == "f_kr_wuerg":
-		_fx.add("dust", {"x": hx}, hw, 0.5)
-	# Funken in der Farbe des Getroffenen
+		_fx.add("dust", {"x": hx}, 0.0, 0.5)
 	var spark_col := Color(0.85, 0.2, 0.18)
-	if who.side == 1:
-		if who.kind in ["tentakel", "kraken"]:
+	if tgt.side == 1:
+		if tgt.kind in ["tentakel", "kraken"]:
 			spark_col = Color(0.65, 0.4, 0.85)
-		elif who.immune.has("bleed"):
+		elif tgt.immune.has("bleed"):
 			spark_col = Color(0.8, 0.95, 0.85)
 	if crit:
 		spark_col = Color(1.0, 0.82, 0.3)
-	_fx.add("spark", {"x": hx, "y": hy, "col": spark_col, "n": 9 if crit else (6 if dmg >= 15 else 4), "dir": -dirv}, hw, 0.5)
-	if crit:
-		_fx.cue("flash", {"col": Color(1.0, 0.85, 0.4, 0.3), "d": 0.2}, hw)
-		_fx.cue("shake", {"amp": 2.5, "d": 0.25}, hw)
-		_fx.cue("freeze", {"d": 0.07}, hw)
-		_fx.cue("zoom", {"amp": 0.05, "d": 0.3, "fx": hx, "fy": hy}, hw)
-		_fx.cue("slowmo", {"f": 0.5, "d": 0.25}, hw)
-		_slow(1.1)
-	elif dmg >= 24:
-		_fx.cue("shake", {"amp": 1.5, "d": 0.18}, hw)
+	var blood := int(BeatPlanner.LEVEL["blood"][level])
+	var spark := int(BeatPlanner.LEVEL["spark"][level])
+	_fx.add("spark", {"x": hx, "y": hy, "col": spark_col, "n": blood, "dir": -dirv}, 0.0, 0.5)
+	if spark > 0:
+		_fx.add("spark", {"x": hx, "y": hy, "col": Color(1.0, 0.95, 0.75), "n": spark, "dir": -dirv}, 0.0, 0.35)
+	if level >= FightLevel.HEAVY:
+		_fx.add("dust", {"x": hx}, 0.05, 0.45)
 
 
-## Ein Fehlschlag: der Pfeil oder die Kugel fliegt vorbei, der Hieb geht ins Leere.
-func _fx_miss(who: Combat.Fighter, sk: String, hw: float) -> void:
-	var hx := _fig_x(who)
-	var hy := FIGHT_FEET - 60.0
-	var dirv := 1.0 if who.side == 1 else -1.0
-	if FightFx.is_flight(sk) and _ev_actor != null and sk == _ev_sk and FightFx.go_fx(sk) == "arrow":
-		var ax := _fig_x(_ev_actor)
-		_fx.add("arrow", {"x": ax + dirv * 22.0, "y": hy, "x2": hx + dirv * 80.0, "y2": hy + 12.0, "miss": true}, maxf(hw - 0.2, 0.0), 0.3)
-	elif FightFx.is_flight(sk) and _ev_actor != null and sk == _ev_sk and FightFx.go_fx(sk) == "bullet":
-		var bx := _fig_x(_ev_actor)
-		_fx.add("bullet", {"x": bx + dirv * 30.0, "y": hy, "x2": hx + dirv * 120.0, "y2": hy + 8.0, "miss": true}, maxf(hw - 0.09, 0.0), 0.2)
-		_fx.add("spark", {"x": hx + dirv * 52.0, "y": hy + 28.0, "col": Color(0.8, 0.75, 0.6), "n": 3, "dir": -dirv}, hw + 0.1, 0.35)
+## Antwort der Anzeige auf die Cues der Regie: Klänge, Wirkungen, Zahlen und Ansagen.
+func _on_cue(kind: String, d: Dictionary) -> void:
+	var c := _ev_combat
+	if c == null:
+		return
+	match kind:
+		"go":
+			var who: Combat.Fighter = d["who"]
+			var sk := String(d["sk"])
+			_ev_actor = who
+			_ev_sk = sk
+			Sfx.play(Sfx.skill_sound(sk, "go"))
+			_fx_go(c, who, sk)
+			var tgts: Array = d["tgts"]
+			var contacts: Array = d["contacts"]
+			var release := float(d.get("release_in", 0.0)) / 1000.0
+			for i in tgts.size():
+				if tgts[i] != who and FightFx.is_flight(sk):
+					_fx_flight(who, tgts[i], sk, release, float(contacts[i]) / 1000.0, bool(d.get("miss", false)))
+			var sname := _skill_label(sk)
+			if sname != "":
+				_fx.show_banner(sname, who.name if who.side == 0 else String(Foes.info(who.kind).get("short", who.name)), who.side, Roles.icon_of(sk))
+		"impact":
+			var tgt: Combat.Fighter = d["tgt"]
+			var sk2 := String(d["sk"])
+			var lv := int(d["level"])
+			var crit := bool(d["crit"])
+			if not bool(d["dot"]):
+				Sfx.play(Sfx.skill_sound(sk2, "hit"), 2.0 if crit else 0.0)
+				if crit:
+					Sfx.play("clash", -6.0)
+				if lv >= FightLevel.HEAVY:
+					Sfx.play("thud", -6.0 + (6.0 if crit else 0.0))
+			_fx_impact(d["att"], tgt, sk2, lv, crit, int(d["n"]))
+		"miss":
+			Sfx.play("whiff")
+			var att: Combat.Fighter = d["att"]
+			var tg: Combat.Fighter = d["tgt"]
+			var sk3 := String(d["sk"])
+			if att != null and tg != null:
+				_fx_miss_cue(att, tg, sk3)
+		"number":
+			var f: Combat.Fighter = d["f"]
+			var cls := String(d["cls"])
+			var col := PAPER
+			if cls == "crit":
+				col = GOLD
+			elif cls == "dot":
+				col = Color(0.9, 0.45, 0.4)
+			elif cls == "miss":
+				col = Color(DIM, 0.95)
+			elif f.side == 0:
+				col = Color(0.95, 0.45, 0.4)
+			_floats.append({"x": _fig_x(f), "y": FIGHT_FEET - (78.0 if FigArt.rig else 92.0) - (24.0 if _is_big(f) else 0.0), "text": String(d["text"]), "col": col, "t": 1.0 if cls != "crit" else 1.2, "big": cls == "crit", "wait": 0.0})
+		"heal":
+			var tg2: Combat.Fighter = d["tgt"]
+			Sfx.play("heal")
+			_fx.add("heal", {"x": _fig_x(tg2), "y": _ry(68.0)}, 0.0, 0.9)
+			if int(d["n"]) > 0:
+				_floats.append({"x": _fig_x(tg2), "y": FIGHT_FEET - (78.0 if FigArt.rig else 92.0), "text": "+%d" % int(d["n"]), "col": GREEN, "t": 1.0, "big": false, "wait": 0.1})
+		"die":
+			var df: Combat.Fighter = d["f"]
+			var big := _is_big(df)
+			Sfx.play("kraken_roar" if big else ("tentacle" if df.kind == "tentakel" else ("bones" if df.kind in ["knochen", "rost", "bogner"] else "fall")))
+			_fx.add("dust", {"x": _fig_x(df)}, 0.15, 0.5)
+			if big:
+				_fx.flash(Color(1, 1, 1, 0.5), 0.6)
+		"word":
+			_word_cue(d)
+		"big":
+			_fx.show_big(String(d["text"]), String(d["sub"]), d["col"] as Color, float(d["dur"]))
+		"halo":
+			_fx.add("ring", {"x": (d["pos"] as Vector2).x, "y": (d["pos"] as Vector2).y, "r": float(d["radius"]) * 0.7, "col": Color(d["col"] as Color, 0.7), "w": 1.0}, 0.0, float(d["dur"]) + 0.25)
+		"mood":
+			_fx.flash(Color(d["col"] as Color, float(d["amount"])), float(d["dur"]) + 0.1)
+		"lightning":
+			_fx.flash(Color(1, 1, 1, 0.5), 0.35)
+
+
+## Fehlschlag: der Pfeil fliegt vorbei, der Hieb geht ins Leere.
+func _fx_miss_cue(att: Combat.Fighter, tgt: Combat.Fighter, sk: String) -> void:
+	var hx := _fig_x(tgt)
+	var hy := _ry(60.0)
+	var dirv := 1.0 if tgt.side == 1 else -1.0
+	if FightFx.is_flight(sk):
+		_fx.add("spark", {"x": hx + dirv * 52.0, "y": hy + 20.0, "col": Color(0.8, 0.75, 0.6), "n": 3, "dir": -dirv}, 0.1, 0.35)
 	elif FightFx.hit_fx(sk) in ["slash", "chop"]:
-		_fx.add("slash", {"x": hx - dirv * 12.0, "y": hy, "dir": dirv, "faint": true}, hw, 0.25)
+		_fx.add("slash", {"x": hx - dirv * 12.0, "y": hy, "dir": dirv, "faint": true}, 0.0, 0.25)
+
+
+## Worte und Ansagen über den Figuren (gepackt!, frei!, wächst nach, Heldenmut, Zusammenbruch, über Bord ...).
+func _word_cue(d: Dictionary) -> void:
+	var f: Combat.Fighter = d["f"]
+	if f == null:
+		return
+	var fx := _fig_x(f)
+	var ty := String(d["type"])
+	var tx := String(d.get("text", ""))
+	var top := FIGHT_FEET - (78.0 if FigArt.rig else 92.0) - (60.0 if _is_big(f) else 0.0)
+	match ty:
+		"text":
+			var tcol := GREEN if tx == "frei!" else (RED if tx in ["gepackt!", "spannt sich!", "rastet aus!"] else Color(0.75, 0.7, 0.95))
+			_floats.append({"x": fx, "y": top, "text": tx, "col": tcol, "t": 1.4, "big": tx in ["spannt sich!", "unterbrochen!"], "wait": 0.0})
+			if tx == "spannt sich!":
+				Sfx.play("kraken_roar")
+			elif tx == "gepackt!":
+				Sfx.play("tentacle", 0.0, 0.1)
+		"skip":
+			_floats.append({"x": fx, "y": top, "text": tx, "col": Color(0.75, 0.7, 0.95), "t": 1.0, "big": false, "wait": 0.0})
+		"flee":
+			_floats.append({"x": fx, "y": top, "text": "flieht", "col": Color(DIM, 0.95), "t": 1.0, "big": false, "wait": 0.0})
+		"spawn":
+			_floats.append({"x": fx, "y": top, "text": tx if tx != "" else "wächst nach", "col": VIOLET, "t": 1.2, "big": false, "wait": 0.0})
+			Sfx.play("bones" if tx == "beschworen" else "tentacle", -3.0)
+			_fx.add("dust", {"x": fx}, 0.0, 0.6)
+		"overboard":
+			_floats.append({"x": fx, "y": top, "text": "über Bord!", "col": Color(0.6, 0.8, 0.95), "t": 1.3, "big": true, "wait": 0.0})
+			Sfx.play("splash", 0.0, 0.3)
+			_fx.add("ring", {"x": fx, "y": _ry(40.0), "r": 22.0, "col": Color(0.6, 0.8, 0.95, 0.9), "w": 2.0}, 0.2, 0.6)
+		"heroic":
+			Sfx.play("heroic")
+			_fx.show_big("HELDENMUT", "%s: %s" % [f.name, tx], GOLD, 2.3)
+			_fx.flash(Color(1.0, 0.85, 0.4, 0.4), 0.55)
+			_fx.add("ring", {"x": fx, "y": _ry(52.0), "r": 40.0, "col": Color(1.0, 0.85, 0.4, 0.9), "w": 2.0}, 0.0, 0.8)
+			_fx.add("ring", {"x": fx, "y": _ry(52.0), "r": 24.0, "col": Color(1.0, 1.0, 0.8, 0.9), "w": 1.0}, 0.15, 0.7)
+		"snap":
+			Sfx.play("snap")
+			_fx.show_big("ZUSAMMENBRUCH", "%s: %s" % [f.name, tx], Color(0.9, 0.35, 0.35), 2.3)
+			_fx.flash(Color(0.45, 0.0, 0.1, 0.45), 0.6)
 
 
 func _tick_fight(delta: float) -> void:
-	if not _fx.tick(delta):
-		return  # kurzes Einfrieren bei Krit und Tod
-	delta *= _fx.time_scale()  # Zeitlupe beim letzten Gegner und beim Tod eines Mannes
-	for f in _anim.keys():
-		var a: Dictionary = _anim[f]
-		if float(a.get("wait", 0.0)) > 0.0:
-			a["wait"] = float(a["wait"]) - delta
-			continue
-		a["t"] = float(a["t"]) - delta
-		if float(a["t"]) <= 0.0:
-			_anim.erase(f)
+	_clock += delta
+	if voy == null or voy.combat == null:
+		if _dir != null or _ev_combat != null:
+			_fight_end()
+		return
+	if _dir == null:
+		return  # das Kampfbild baut die Regie beim ersten Zeichnen
+	_dir.tick(delta)
+	voy.combat_stage(_dir.pending_s())  # der Gegnerzug wartet, bis die Regie fertig ist
+	var sdt := _dir.stage_dt()
+	_fx.tick_ext(sdt, delta)
 	for fl in _floats:
 		if float(fl.get("wait", 0.0)) > 0.0:
-			fl["wait"] = float(fl["wait"]) - delta
+			fl["wait"] = float(fl["wait"]) - sdt
 			continue
-		fl["t"] = float(fl["t"]) - delta
-		fl["y"] = float(fl["y"]) - 16.0 * delta
+		fl["t"] = float(fl["t"]) - sdt
+		fl["y"] = float(fl["y"]) - 16.0 * sdt
 	_floats = _floats.filter(func(d: Dictionary) -> bool: return float(d["t"]) > 0.0)
-	for g in _ghosts:
-		g["t"] = float(g["t"]) - delta
-	_ghosts = _ghosts.filter(func(d: Dictionary) -> bool: return float(d["t"]) > 0.0)
 
 
-## Wie hell ein Kämpfer steht (0,5 bis 1,0): der Handelnde, gültige Ziele und wer gerade getroffen wird oder zuschlägt stehen im
-## Licht, alle anderen im Halbdunkel. Der Wert wechselt weich, damit das Licht von einem zum anderen wandert.
-func _focus_light(c: Combat, f: Combat.Fighter, valid: bool, busy: bool) -> float:
-	var target := 1.0
-	if c.state != "done" and c.actor != null and not busy and c.actor != f and not valid:
-		if _fight_skill != "" or _fight_move:
-			target = 0.5  # die Zielwahl läuft: nur die Ziele leuchten
-		else:
-			target = 0.64 if f.side == 0 else 0.72
-	var cur := float(_lit.get(f, target))
-	cur = move_toward(cur, target, get_process_delta_time() * 3.0)
-	_lit[f] = cur
-	return cur
-
-
-## part: 0 nur die Figur (mit Licht und Markierungen), 1 nur das Schild darunter (Name, Kraft, Zustände), 2 beides.
-## Die Figuren des Atlas (44x56) werden doppelt gezeichnet; die Füße stehen auf FIGHT_FEET, der Riese auf FIGHT_BIG_SOLE.
-func _draw_fighter(c: Combat, f: Combat.Fighter, mouse: Vector2, valid: bool, part: int = 2) -> void:
-	if part != 1:
-		_draw_fighter_body(c, f, valid)
-	if part != 0:
-		_draw_fighter_plate(c, f, valid)
-
-
-func _draw_fighter_body(c: Combat, f: Combat.Fighter, valid: bool) -> void:
+## Wie die Figuren eines Kampfbildes auf den Schirm kommen: `xf` bildet Bühne -> Bild ab (Kamera der Regie, FightGeo.layer_xf).
+## Einen Kämpfer zeichnen: Schatten, Nachbilder, Figur (Rig-Streifen, gespiegelt für Gegner), weißer Frame, Rotstich.
+func _draw_view(c: Combat, v: FightViews.FigView, xf: Transform2D) -> void:
+	var f := v.f
+	var dirv := 1.0 if f.side == 0 else -1.0
+	var x := roundf(v.x + v.off.x * dirv)
+	var feet := Vector2(x, FIGHT_FEET + roundf(v.drop))
+	var bright := 0.55 + 0.45 * v.lit
+	var tint := Color(bright, bright, minf(bright * 1.06, 1.0), v.alpha)
+	if v.red > 0.0:
+		tint = Color(tint.r, tint.g * (1.0 - 0.62 * v.red), tint.b * (1.0 - 0.66 * v.red), tint.a)
+	if v.alive:
+		FightStage.draw_shadow(self, x, FIGHT_FEET, 64.0 + v.shadow_w * 2.0, 0.6 * v.alpha)
+	var frame := v.frame if v.frame != "" else FigArt.rest_frame(_clock, v.shown_rank, v.ready, v.stun, v.shown_door)
+	if _is_big(f):
+		_draw_big(v, frame, x, tint, xf)
+		return
+	if FigArt.rig and FigArt.has(FigArt.id_of(f)):
+		var id := FigArt.id_of(f)
+		var lift := 12.0 if frame == "grab" and not FigAtlas.ANCHORS[id].has("grab") else 0.0
+		for i in v.ghosts.size():
+			var ga: float = float([0.30, 0.18, 0.10][i]) * v.alpha
+			FigArt.draw(self, id, frame, feet + Vector2(roundf(v.ghosts[i].x * dirv), 0.0), xf, f.side == 1, Color(1.0, 0.85, 0.55, ga))
+		FigArt.draw(self, id, frame, feet, xf, f.side == 1, tint, v.flash, lift)
+		return
+	# altes Gerüst (assets/combat.png, doppelt gezeichnet), falls die Rig-Streifen fehlen
 	if _combat_tex == null:
 		_combat_tex = load("res://assets/combat.png") as Texture2D
-	var cx := _fig_x(f)
-	var a: Dictionary = _anim.get(f, {})
-	if not a.is_empty() and float(a.get("wait", 0.0)) > 0.0:
-		a = {}  # die Reaktion wartet, bis der Hieb oder Pfeil ankommt
-	var dir := 1.0 if f.side == 0 else -1.0
-	var dx := 0.0
-	var tint := Color.WHITE
-	var col := (int(Time.get_ticks_msec() / 520) + f.rank) % 2
-	if f.side == 0 and f.door:
-		col = 4
-	if not a.is_empty():
-		var tt := float(a["t"])
-		match String(a["kind"]):
-			"attack":
-				col = 2
-				dx = dir * 9.0 * FS * float(a.get("mv", 1.0)) * sin(PI * clampf(1.0 - tt / 0.42, 0.0, 1.0))
-			"dodge":
-				dx = -dir * 5.0 * FS * sin(PI * clampf(1.0 - tt / 0.3, 0.0, 1.0))
-			_:
-				col = 3
-				dx = -dir * 2.0 * FS + (FS if int(tt * 40.0) % 2 == 0 else -FS)
-				tint = Color(1.7, 0.6, 0.55)
-	var active := c.actor == f and c.state != "done"
-	var big := _is_big(f)
-	if big and f.charge and a.is_empty():
-		col = 4
-	var lit := _focus_light(c, f, valid, not a.is_empty())
-	var dimc := Color(lit, lit, minf(lit * 1.06, 1.0), 1.0)
-	var t_now := float(Time.get_ticks_msec()) / 1000.0
-	# Schatten, Lichtkegel und Markierung unter den Füßen
-	if not big:
-		FightStage.draw_shadow(self, cx, FIGHT_FEET, 64.0, 0.6)
-	if active:
-		FightStage.draw_spot(self, cx, FIGHT_FEET, f.side == 1, 1.0, t_now)
-		var mark := GOLD if f.side == 0 else Color(0.85, 0.42, 0.42)
-		draw_rect(Rect2(cx - 32, FIGHT_FEET + 3, 64, 2), mark)
-		draw_rect(Rect2(cx - 26, FIGHT_FEET + 5, 52, 1), Color(mark, 0.5))
-	if big:
-		var bw := float(Foes.BIG[f.kind]["w"])
-		var bh := float(Foes.BIG[f.kind]["h"])
-		draw_texture_rect_region(_big_texture(f.kind), Rect2(roundf(cx - bw * FS * 0.5 + dx), FIGHT_BIG_SOLE - bh * FS, bw * FS, bh * FS), Rect2(float(col) * bw, 0.0, bw, bh), tint * dimc)
-	elif _combat_tex != null:
-		var row := _fig_row(f)
-		draw_texture_rect_region(_combat_tex, Rect2(roundf(cx - FIG_W * FS * 0.5 + dx), FIGHT_FEET - 52.0 * FS, FIG_W * FS, FIG_H * FS), Rect2(float(col) * FIG_W, float(row) * FIG_H, FIG_W, FIG_H), tint * dimc)
-	var rect := _fighter_rect(f)
-	if active and f.side == 0:
-		var ay := FIGHT_FEET - 106.0
-		draw_colored_polygon(PackedVector2Array([Vector2(cx - 5, ay), Vector2(cx + 5, ay), Vector2(cx, ay + 6)]), GOLD)
-	if valid:
-		var pulse := 0.6 + 0.4 * sin(float(Time.get_ticks_msec()) / 160.0)
-		draw_rect(rect.grow(2), Color(PAPER, pulse), false, 1.0)
-		var vy := rect.position.y - 8.0
-		draw_colored_polygon(PackedVector2Array([Vector2(cx - 5, vy), Vector2(cx + 5, vy), Vector2(cx, vy + 6)]), RED if f.side == 1 else GREEN)
-		_register(rect.grow(4), "ft%d_%d" % [f.side, f.rank])
+	if _combat_tex != null:
+		draw_set_transform_matrix(xf)
+		var col := _old_col(frame)
+		draw_texture_rect_region(_combat_tex, Rect2(roundf(x - FIG_W * FS * 0.5), feet.y - 52.0 * FS, FIG_W * FS, FIG_H * FS), Rect2(float(col) * FIG_W, float(_fig_row(f)) * FIG_H, FIG_W, FIG_H), tint)
 
 
-func _draw_fighter_plate(c: Combat, f: Combat.Fighter, valid: bool) -> void:
-	var cx := _fig_x(f)
-	var rect := _fighter_rect(f)
-	# Name, Kraft, Verzweiflung, Zustände
+## Spalte im alten Gerüst-Atlas zu einem Bildnamen (SPEC 3.3).
+func _old_col(frame: String) -> int:
+	if frame.begins_with("idle_"):
+		return 0 if int(frame.substr(5)) % 2 == 0 else 1
+	if frame.begins_with("strike") or frame.begins_with("follow") or frame.begins_with("cast"):
+		return 2
+	if frame.begins_with("block") or frame.begins_with("hit") or frame.begins_with("stun") or frame.begins_with("fall") or frame == "dead" or frame == "grab":
+		return 3
+	if frame.begins_with("door"):
+		return 4
+	return 0
+
+
+## Der Riese (Kraken): ein eigenes Bild mit fünf Spalten; Ausholen, Zuschlagen und Sinken entstehen durch Strecken und Absenken.
+func _draw_big(v: FightViews.FigView, frame: String, x: float, tint: Color, xf: Transform2D) -> void:
+	var f := v.f
+	var bw := float(Foes.BIG[f.kind]["w"])
+	var bh := float(Foes.BIG[f.kind]["h"])
+	var col := 0
+	var sy := 1.0
+	var clock_col := (int(_clock / 0.52) + f.rank) % 2
+	if frame.begins_with("idle") or frame.begins_with("ready"):
+		col = 4 if (f.charge and v.f.hp > 0.0) else clock_col
+	elif frame.begins_with("windup"):
+		col = 4
+		sy = 1.0 + (0.03 if frame.ends_with("0") else 0.07)
+	elif frame.begins_with("strike") or frame.begins_with("follow"):
+		col = 2
+		sy = 0.97
+	else:
+		col = 3
+	var th := bh * FS * sy
+	if v.flash > 0.01:
+		tint = tint.lerp(Color(2.2, 2.2, 2.2, tint.a), clampf(v.flash, 0.0, 1.0) * 0.6)
+	draw_set_transform_matrix(xf)
+	draw_texture_rect_region(_big_texture(f.kind), Rect2(roundf(x - bw * FS * 0.5), FIGHT_BIG_SOLE - th + roundf(v.drop), bw * FS, th), Rect2(float(col) * bw, 0.0, bw, bh), tint)
+
+
+## Schild unter der Figur: Name, Kraft (gezeigt, springt erst beim Treffer), Verzweiflung, Zustände. Es wird nicht mitgezoomt, sondern
+## unter dem umgerechneten Fußpunkt gesetzt.
+func _draw_plate(c: Combat, v: FightViews.FigView, valid: bool, xf: Transform2D) -> void:
+	var f := v.f
+	var cx := roundf((xf * Vector2(_fig_x(f), FIGHT_FEET)).x)
+	var rect := xf * _fighter_rect(f)
 	var nm := f.name if f.side == 0 else String(Foes.info(f.kind).get("short", f.name))
-	_t(Vector2(cx - 26, FIGHT_FEET + 14), nm, PAPER, 8, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
-	_bar(cx - 19, FIGHT_FEET + 18, 38, 4, f.hp / f.hp_max, _kraft_col(f.hp) if f.side == 0 else RED)
+	var dim := clampf(0.55 + 0.45 * v.lit, 0.55, 1.0) * 0.4 + 0.6  # Gedimmte höchstens auf 80 %: Schrift bleibt lesbar
+	var pc := Color(PAPER, dim)
+	_t(Vector2(cx - 26, FIGHT_FEET + 14), nm, pc, 8, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
+	var hp_frac := clampf(v.shown_hp / maxf(f.hp_max, 1.0), 0.0, 1.0)
+	_bar(cx - 19, FIGHT_FEET + 18, 38, 4, hp_frac, _kraft_col(v.shown_hp) if f.side == 0 else RED)
 	if f.side == 0 and f.man != null:
 		UiSkin.mini_bar(self, cx - 19, FIGHT_FEET + 24, 38, clampf(f.man.stress, 0.0, 100.0) / 100.0, VIOLET if f.man.stress < 70.0 else RED)
-	var info := "%d" % maxi(roundi(f.hp), 0)
+	var info := "%d" % maxi(roundi(v.shown_hp), 0)
 	var stext := _status_text(f)
 	if stext != "":
 		info += "  " + stext
-	_t(Vector2(cx - 26, FIGHT_FEET + 36), info, PAPER if stext == "" else GOLD, 7, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
+	_t(Vector2(cx - 26, FIGHT_FEET + 36), info, pc if stext == "" else GOLD, 7, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
 	if f.side == 1 and f.guarded:
 		_t(Vector2(cx - 38, FIGHT_FEET + 46), "geschützt" if c._tentacles() > 0 else "offen!", DIM if c._tentacles() > 0 else GREEN, 7, HORIZONTAL_ALIGNMENT_CENTER, 76.0)
 	_tip(rect, Tips.fighter(c, f, _fight_skill if valid else ""))
 
 
 func _draw_fight_overlay() -> void:
-	for g in _ghosts:
-		var f: Combat.Fighter = g["f"]
-		var span := 1.2 if _is_big(f) else 0.7
-		var held := float(g["t"]) > span  # der tödliche Hieb ist noch unterwegs: die Figur steht noch
-		var al := clampf(float(g["t"]) / span, 0.0, 1.0)
-		var gcol := 0 if held else 3
-		var gtint := Color.WHITE if held else Color(1.4, 0.7, 0.7, al)
-		if _is_big(f):
-			var bw := float(Foes.BIG[f.kind]["w"])
-			var bh := float(Foes.BIG[f.kind]["h"])
-			draw_texture_rect_region(_big_texture(f.kind), Rect2(roundf(_fig_x(f) - bw * FS * 0.5), FIGHT_BIG_SOLE - bh * FS + (1.0 - al) * 28.0, bw * FS, bh * FS), Rect2(float(gcol) * bw, 0.0, bw, bh), gtint)
-		elif _combat_tex != null:
-			draw_texture_rect_region(_combat_tex, Rect2(roundf(_fig_x(f) - FIG_W * FS * 0.5), FIGHT_FEET - 52.0 * FS + (1.0 - al) * 6.0 * FS, FIG_W * FS, FIG_H * FS), Rect2(float(gcol) * FIG_W, float(_fig_row(f)) * FIG_H, FIG_W, FIG_H), gtint)
 	_fx.draw(self, _stage_xf)
+
+
+## Schwebende Zahlen und Worte: sie hängen an einem Bühnenpunkt, werden aber nicht mitgezoomt.
+func _draw_floats() -> void:
 	for fl in _floats:
 		if float(fl.get("wait", 0.0)) > 0.0:
 			continue
 		var al2 := clampf(float(fl["t"]) / 0.5, 0.0, 1.0)
 		var size := 14 if bool(fl["big"]) else 11
 		var col: Color = fl["col"]
-		_t(Vector2(float(fl["x"]) - 30.0, float(fl["y"])), String(fl["text"]), Color(col, al2), size, HORIZONTAL_ALIGNMENT_CENTER, 60.0)
+		var pos := _stage_xf * Vector2(float(fl["x"]), float(fl["y"]))
+		_t(Vector2(roundf(pos.x) - 30.0, roundf(pos.y)), String(fl["text"]), Color(col, al2), size, HORIZONTAL_ALIGNMENT_CENTER, 60.0)
 
 
 ## Aufblitzen, Banner mit dem Namen der Fertigkeit und die große Ansage bei Heldenmut und Zusammenbruch.
 func _draw_fight_texts() -> void:
 	# Vignette: die Ränder der Bühne sind dunkel, bei großen Ansagen noch mehr
-	FightStage.draw_vignette(self, 0.34 + (0.3 if not _fx.big.is_empty() else 0.0))
+	FightStage.draw_vignette(self, 0.34 + (_dir.light().vignette if _dir != null else 0.0) + (0.3 if not _fx.big.is_empty() else 0.0))
 	var fl := _fx.flash_color()
 	if fl.a > 0.0:
 		draw_rect(Rect2(0, 0, Waves.VIEW_W, FightStage.STAGE_H), fl)
@@ -2442,17 +2480,17 @@ func _draw_combat_view(mouse: Vector2) -> void:
 		_fight_skill = ""
 		_fight_move = false
 	_fight_events(c)
+	if _dir == null:
+		return  # kopflos: nichts zu zeichnen
+	for f in c.heroes:
+		_dir.fig(f)
+	for f in c.foes:
+		_dir.fig(f)
+	if c.state == "done":
+		_dir.set_result(c.result)
 	if c.state == "done" and _outro_for != c and voy.combat_outro > 0.0:
 		_outro_for = c
 		_fight_outro(c)
-	var zsc := _fx.zoom_scale()
-	var cam := _fx.offset() + _fx.zoom_offset()
-	_stage_xf = Transform2D(Vector2(zsc, 0.0), Vector2(0.0, zsc), cam)
-	draw_set_transform(cam, 0.0, Vector2(zsc, zsc))  # Wackeln und Kameraschub: nur die Bühne, nicht die Karten
-	var tnow := float(Time.get_ticks_msec()) / 1000.0
-	var want_dim := 0.0 if (c.state == "done" or c.actor == null) else 0.24  # der Hintergrund tritt zurück, solange jemand handelt
-	_stage_dim = move_toward(_stage_dim, want_dim, get_process_delta_time() * 1.5)
-	FightStage.draw_back(self, c.formation, tnow, _stage_dim)
 	var armed_ally := _fight_skill != "" and String(Roles.skill(_fight_skill)["tgt"]) == "ally"
 	var valid_foes: Array[Combat.Fighter] = []
 	var valid_heroes: Array[Combat.Fighter] = []
@@ -2467,27 +2505,57 @@ func _draw_combat_view(mouse: Vector2) -> void:
 			for hh in c.heroes:
 				if hh != c.actor:
 					valid_heroes.append(hh)
-	for f in c.foes:
-		if _is_big(f):
-			_draw_fighter(c, f, mouse, valid_foes.has(f), 0)  # Riesen stehen hinter dem Deck und allen anderen
+	var picking := _fight_skill != "" or _fight_move  # ein Ziel wird gesucht
+	var valid_all: Array = []
+	valid_all.append_array(valid_foes)
+	valid_all.append_array(valid_heroes)
+	_dir.set_input(c.actor if (c.state == "hero" and c.actor != null) else null, picking, valid_all)
+	var cam := _dir.camera()
+	var light := _dir.light()
+	var xf1 := FightGeo.layer_xf(1.0, cam.zoom, cam.center_x, cam.shake)
+	_stage_xf = xf1
+	var tnow := _clock
+	_stage_dim = clampf(1.0 - light.bg, 0.0, 0.5)
+	# Hintergrund: weiter hinten, bewegt sich weniger (Tiefe 0,35); Deck und Figuren Tiefe 1; Vordergrund 1,2
+	draw_set_transform_matrix(FightGeo.back_xf(cam.zoom, cam.center_x, cam.shake))
+	FightStage.draw_back(self, c.formation, tnow, _stage_dim)
+	draw_set_transform_matrix(xf1)
+	var views := _dir.figs()
+	for v in views:
+		if (v as FightViews.FigView).big:
+			_draw_view(c, v, xf1)  # Riesen stehen hinter dem Deck und allen anderen
 	FightStage.draw_deck(self, c.formation, _stage_dim)
 	FightStage.draw_mid(self, c.formation, tnow)
-	_t(Vector2(8, 190), "Eure Männer (Reihe 1 vorn)", Color(PAPER, 0.5), 7)
-	_t(Vector2(250, 190), "Gegner", Color(PAPER, 0.5), 7)
-	for f in c.heroes:
-		_draw_fighter(c, f, mouse, valid_heroes.has(f))
-	for f in c.foes:
-		if not _is_big(f):
-			_draw_fighter(c, f, mouse, valid_foes.has(f))
-	for f in c.foes:
-		if _is_big(f):
-			_draw_fighter(c, f, mouse, valid_foes.has(f), 1)
+	# Scheinwerfer und Markierung unter dem Handelnden
+	if light.spot_amt > 0.02:
+		FightStage.draw_spot(self, light.spot_pos.x, FIGHT_FEET, light.foe_turn, light.spot_amt, tnow)
+		var mark := Color(0.85, 0.42, 0.42) if light.foe_turn else GOLD
+		draw_rect(Rect2(light.spot_pos.x - 32, FIGHT_FEET + 3, 64, 2), Color(mark, light.spot_amt))
+		draw_rect(Rect2(light.spot_pos.x - 26, FIGHT_FEET + 5, 52, 1), Color(mark, 0.5 * light.spot_amt))
+	for v in views:
+		var fv := v as FightViews.FigView
+		if not fv.big:
+			_draw_view(c, fv, xf1)
+			if fv.ready and fv.alive:
+				var ax := roundf(fv.x)
+				var ay := FIGHT_FEET - (88.0 if FigArt.rig else 106.0)
+				draw_colored_polygon(PackedVector2Array([Vector2(ax - 5, ay), Vector2(ax + 5, ay), Vector2(ax, ay + 6)]), GOLD)
+	# gültige Ziele: Rahmen und Pfeil, Klickfläche mit der Kamera umgerechnet
+	for f in valid_all:
+		var vf := f as Combat.Fighter
+		var rect := _fighter_rect(vf)
+		var pulse := 0.6 + 0.4 * sin(tnow * 6.2)
+		draw_rect(rect.grow(2), Color(PAPER, pulse), false, 1.0)
+		var vy := rect.position.y - 8.0
+		var vx := _fig_x(vf)
+		draw_colored_polygon(PackedVector2Array([Vector2(vx - 5, vy), Vector2(vx + 5, vy), Vector2(vx, vy + 6)]), RED if vf.side == 1 else GREEN)
+		_register(xf1 * rect.grow(4), "ft%d_%d" % [vf.side, vf.rank])
 	for f in c.foes:
 		if f.holding != null and not f.holding.gone:
 			# der Griff: ein Fangarm schwingt in einem Bogen über die Männer zum Gepackten
-			var ga := Vector2(_fig_x(f) - 16.0, FIGHT_FEET - 80.0)
-			var gb := Vector2(_fig_x(f.holding) + 18.0, FIGHT_FEET - 60.0)
-			var gc := Vector2((ga.x + gb.x) * 0.5, FIGHT_FEET - 160.0)
+			var ga := Vector2(_fig_x(f) - 16.0, _ry(80.0))
+			var gb := Vector2(_fig_x(f.holding) + 18.0, _ry(60.0))
+			var gc := Vector2((ga.x + gb.x) * 0.5, FIGHT_FEET - 130.0)
 			var arc := PackedVector2Array()
 			for k in 13:
 				var u := float(k) / 12.0
@@ -2495,9 +2563,20 @@ func _draw_combat_view(mouse: Vector2) -> void:
 			draw_polyline(arc, Color("3a2552"), 8.0)
 			draw_polyline(arc, Color("6b4a8a"), 5.0)
 			draw_polyline(arc, Color("8a62a6"), 2.0)
+	draw_set_transform_matrix(FightGeo.layer_xf(1.2, cam.zoom, cam.center_x, cam.shake))
 	FightStage.draw_front(self, c.formation, tnow)
+	draw_set_transform_matrix(xf1)
 	_draw_fight_overlay()
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+	# beim Zoomen ragt die Bühne unten über ihren Rand: die Fläche der Meldungen und Karten wird darüber neu gedeckt
+	draw_rect(Rect2(0, FightStage.STAGE_H, Waves.VIEW_W, Waves.VIEW_H - FightStage.STAGE_H), Color(0.02, 0.03, 0.05, 1.0))
+	_t(Vector2(8, 190), "Eure Männer (Reihe 1 vorn)", Color(PAPER, 0.5), 7)
+	_t(Vector2(250, 190), "Gegner", Color(PAPER, 0.5), 7)
+	for v in views:
+		var pv := v as FightViews.FigView
+		if pv.alive and (c.heroes.has(pv.f) or c.foes.has(pv.f)):
+			_draw_plate(c, pv, valid_all.has(pv.f), xf1)
+	_draw_floats()
 	_draw_fight_texts()
 	# Kopfzeile und Zugleiste über der Bühne
 	_t(Vector2(14, 18), "Deckkampf: %s" % String(Foes.FORMATIONS[c.formation]["name"]), GOLD, 11)

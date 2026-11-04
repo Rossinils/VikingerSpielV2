@@ -34,6 +34,16 @@ class FigView extends RefCounted:
 	var death_dir := 1.0
 	var status: Array[String] = []    # Zustandsnamen nach StatusIcons.ORDER (Schnappschuss am Kontakt)
 	var status_pop := {}              # Name -> Alter in s (0..0,12 poppt)
+	var hit_real := 99.0          # Echtzeit-Sekunden seit dem Kontakt (Blitz und Rotstich laufen in Echtzeit, auch im Standbild)
+	var white_s := 0.05           # Dauer des weißen Frames (s), danach klingt er in 80 ms ab
+	var red_s := 0.15             # Dauer des Rotstichs (s)
+	var jitter := 0.0             # Zittern im Standbild: Stärke in px (Opfer 1, Angreifer 1)
+	var jitter_hz := 30.0
+	var death_dur := 0.7          # Ausblenden der Leiche (s)
+	var pop := 1.0                # Auftritt 0..1 (Beschwörung, Nachwachsen)
+	var gone_t := 0.0             # Flucht und Überbordgehen: Sekunden seit dem Beginn
+	var gone_kind := ""           # "", flee, overboard
+	var hop := 0.0                # Hüpfen beim Platztausch (px nach oben)
 
 class LightState extends RefCounted:
 	var bg := 1.0                 # Hintergrundhelligkeit RELATIV zum Ortswert (Ruhe 1,0)

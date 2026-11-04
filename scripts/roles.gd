@@ -23,6 +23,8 @@ extends RefCounted
 ##           summon (Gegnerart, die an die Front tritt), grab (Runden bis zum Überbordgehen), ink (Runden mit 20 % weniger Treffern)
 
 enum Id { SCHILD, AXT, BOGEN, SKALDE, MUSKET }
+## Dateiname der Rig-Figur je Rolle (assets/fig/<name>.png), gleiche Reihenfolge wie Id
+const FIG_IDS := ["schild", "axt", "bogen", "skalde", "muskete"]
 
 const MAX_LOADOUT := 4
 

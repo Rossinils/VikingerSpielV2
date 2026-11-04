@@ -2,17 +2,17 @@ class_name FightGeo
 extends RefCounted
 
 const VIEW := Vector2(480, 320)
-const STAGE_RECT := Rect2(0, 0, 480, 215)
-const UI_BAR_Y := 215.0
-const FEET := 172.0                       # Stiefelsohle aller Figuren, zugleich Drehpunkt der Kamera
-const HERO_X: Array[float] = [212.0, 156.0, 100.0, 44.0]     # Reihe 1..4
-const FOE_X: Array[float] = [268.0, 324.0, 380.0, 436.0]
-const BIG_X := 408.0                      # Riese (Kraken)
+const STAGE_RECT := Rect2(0, 0, 480, 192)
+const UI_BAR_Y := 192.0
+const FEET := 140.0                       # Stiefelsohle aller Figuren, zugleich Drehpunkt der Kamera (Kampfbühne, hud.gd)
+const HERO_X: Array[float] = [210.0, 152.0, 94.0, 36.0]     # Reihe 1..4
+const FOE_X: Array[float] = [270.0, 328.0, 386.0, 444.0]
+const BIG_X := 392.0                      # Riese (Kraken)
 const BIG_SOLE := 164.0
 const FUGE_X := 239.0
-const HORIZON := 104.0
-const RAIL_Y := 136.0
-const DECK_Y := 142.0
+const HORIZON := 68.0
+const RAIL_Y := 116.0
+const DECK_Y := 134.0
 const CELL := Vector2i(116, 108)          # Rig-Zelle (112x104 plus 2 px Rand)
 const ANCHOR := Vector2i(42, 101)         # Pixel der Zelle, der auf (Fußmitte, FEET) liegt; gespiegelt: Spalte 73
 const OLD_CELL := Vector2i(44, 56)        # alter Atlas combat.png
@@ -52,3 +52,9 @@ static func to_screen(p: Vector2, zoom: float, center_x: float, shake: Vector2 =
 
 static func rect_to_screen(r: Rect2, zoom: float, center_x: float, shake: Vector2 = Vector2.ZERO) -> Rect2:
 	return layer_xf(1.0, zoom, center_x, shake) * r
+
+## Matrix des Hintergrunds (Tiefe 0,35): wie layer_xf, dazu 3 % Überlappung um die Bildmitte, damit beim Wackeln (bis 8 px, mit der
+## Tiefe gewichtet) und beim Schwenken am Rand kein Streifen aufblitzt.
+static func back_xf(zoom: float, center_x: float, shake: Vector2 = Vector2.ZERO) -> Transform2D:
+	var over := Transform2D(Vector2(1.03, 0.0), Vector2(0.0, 1.03), Vector2(240.0 * (1.0 - 1.03), FEET * (1.0 - 1.03)))
+	return over * layer_xf(0.35, zoom, center_x, shake)
