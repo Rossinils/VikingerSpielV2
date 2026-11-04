@@ -45,6 +45,7 @@ var _shot_fight := 0  # Deckkampf: 1 Aufstellung, 2 Kampf, 3 Kampf mit gewählte
 var _shot_form := ""  # --shotform=draugr|raeuber|haendler|dorf|kraken: Ort des Deckkampfs bei --shotfight2/3
 var _shot_kraken := 0  # Deckkampf gegen den Kraken: 1 mit Griff und Tinte, 2 Körper offen und spannt sich (--shotkraken, --shotkraken2)
 var _shot_fx := 0  # Deckkampf mitten im Schuss (1, --shotfx), Hieb (2, --shotfx2) oder Musketenschuss (3, --shotfx3)
+var _shot_route := -1  # --shotroute=N: das Schiff fährt los und hält am Streckenereignis N (0 Treibgut ... 9 Fischschwarm)
 var _soak := 0  # --fightsoak=N: N Deckkämpfe nacheinander mit Anzeige und Regie spielen (Dauertest unter Xvfb), danach beenden
 var _soak_done := 0
 var _soak_cd := 0.0
@@ -137,6 +138,8 @@ func _ready() -> void:
 			_shot_loadout = true
 		elif arg == "--shotfx" or arg == "--shotfx2" or arg == "--shotfx3":
 			_shot_fx = int(arg.substr(arg.length() - 1)) if arg != "--shotfx" else 1
+		elif arg.begins_with("--shotroute="):
+			_shot_route = int(arg.substr(12))
 		elif arg.begins_with("--fightsoak="):
 			_soak = int(arg.substr(12))
 		elif arg == "--shotkill" or arg == "--shotcrit":
@@ -319,6 +322,13 @@ func _ready() -> void:
 		for pm in _voy.fight_prep["party"]:
 			if pm.role == Roles.Id.MUSKET:
 				_hud._loadout_man = pm
+	if _shot_route >= 0:  # Screenshot: Halt mitten auf dem ersten Weg an einem Streckenereignis
+		_hud.hide_help()
+		var rto := int(_voy.node_at(0, 0)["links"][0])
+		_voy.node_at(0, 0)["mid"] = [{"to": rto, "id": Encounters.ROUTE_FIRST + _shot_route, "t": 0.45, "done": false}]
+		_voy.select_route(rto)
+		_voy.set_dial(0, 2)
+		_voy.confirm()
 	if _shot_fx > 0:  # Screenshot: ein Mann schießt oder schlägt, das Bild kommt mitten in der Wirkung
 		_hud.hide_help()
 		if _shot_fx == 3:
@@ -609,6 +619,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not _voy.perk_offer.is_empty() and _voy.phase == Voyage.Phase.PLAN:
 			if key >= KEY_1 and key <= KEY_3:
 				_voy.choose_perk(key - KEY_1)
+			elif key == KEY_LEFT or key == KEY_RIGHT:
+				_hud.kb_move(-1 if key == KEY_LEFT else 1, _voy.perk_offer.size())
+			elif (key == KEY_ENTER or key == KEY_KP_ENTER or key == KEY_SPACE) and _hud.kb_card >= 0:
+				_voy.choose_perk(_hud.kb_card)
 			return
 		if _hud.ship_active():
 			match key:
@@ -643,6 +657,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _voy.phase == Voyage.Phase.ENCOUNTER:
 			if key >= KEY_1 and key <= KEY_7:
 				_voy.decide_encounter(key - KEY_1)
+			elif key == KEY_LEFT or key == KEY_RIGHT:  # Karte wählen (wie in Darkest Dungeon mit der Tastatur), Enter nimmt sie
+				_hud.kb_move(-1 if key == KEY_LEFT else 1, (Encounters.DATA[_voy.encounter]["options"] as Array).size())
+				return
+			elif (key == KEY_ENTER or key == KEY_KP_ENTER or key == KEY_SPACE) and _hud.kb_card >= 0:
+				_voy.decide_encounter(_hud.kb_card)
+				return
+		elif _voy.phase == Voyage.Phase.PLAN and (key == KEY_LEFT or key == KEY_RIGHT):
+			_route_step(-1 if key == KEY_LEFT else 1)  # Kurs auf den linken oder rechten Knoten der nächsten Meile
+			return
+		elif _voy.phase == Voyage.Phase.PLAN and key == KEY_UP:
+			_confirm()  # ↑: auf der Karte nach vorn, eine Wache auf dem gewählten Kurs
+			return
 		elif key >= KEY_1 and key <= KEY_9:
 			_voy.set_dial(floori((key - KEY_1) / 3.0), (key - KEY_1) % 3)  # 1–3 Segel, 4–6 Ruder, 7–9 Küste
 		match key:
@@ -779,6 +805,23 @@ func _new_run() -> void:
 		_new_armed = 4.0
 		if not _hud.menu_open:
 			_voy.say("Noch einmal drücken: die laufende Fahrt geht dabei verloren.", Voyage.Kind.BAD)
+
+
+## ← →: den Kurs auf den linken oder rechten Nachbarknoten der nächsten Meile legen (auf der Seekarte liegen sie nebeneinander).
+## Ist noch nichts gewählt, nimmt ← den linken und → den rechten Weg. Zwischen zwei Knoten ist der Kurs schon gesetzt.
+func _route_step(dir: int) -> void:
+	if _voy.leg > 0.0:
+		return
+	var links: Array = _voy.next_links().duplicate()
+	if links.is_empty():
+		return
+	links.sort()
+	var k := links.find(_voy.route)
+	if k < 0:
+		k = 0 if dir < 0 else links.size() - 1
+	else:
+		k = clampi(k + dir, 0, links.size() - 1)
+	_voy.select_route(int(links[k]))
 
 
 func _confirm() -> void:
@@ -1216,9 +1259,28 @@ func _bot_encounter() -> int:
 				pick = 2  # Handwerker
 		Encounters.Id.SPIELER:
 			pick = 1 if _voy.pfand > 0 else (0 if _voy.loot >= 120.0 else 2)  # die Pfandflasche zuerst, sonst nur mit Beute zum Verspielen
+		Encounters.Id.TREIBGUT, Encounters.Id.FLASCHENPOST:
+			pick = 0
+		Encounters.Id.SCHIFFBRUECHIGER:
+			pick = 0 if _voy.proviant >= 6 else 2
+		Encounters.Id.TREIBEIS:
+			pick = 1 if _voy.proviant >= 10 else 0  # umfahren, solange der Proviant reicht, sonst rudern
+		Encounters.Id.ENTERHAKEN:
+			pick = 0 if s > 0.6 else 1
+		Encounters.Id.WAL:
+			pick = 0 if (s > 0.8 and _voy.hull > 0.5 * _voy.hull_max()) else 1
+		Encounters.Id.IRRLICHTER:
+			pick = 2
+		Encounters.Id.STRUDEL:
+			pick = 1 if _voy.loot >= 80.0 else 0
+		Encounters.Id.TOTENFLOSS:
+			pick = 0 if s > 0.7 else 1
+		Encounters.Id.FISCHSCHWARM:
+			pick = 0 if _voy.proviant < 20 else 1
 	var opts: Array = Encounters.DATA[_voy.encounter]["options"]
 	if _bot != "smart":
 		pick = randi() % opts.size()
+	pick = mini(pick, opts.size() - 1)
 	if not Encounters.available(_voy, opts[pick]):
 		pick = opts.size() - 1  # die letzte Option ist immer kostenlos
 	return pick

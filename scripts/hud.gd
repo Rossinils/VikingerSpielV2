@@ -112,6 +112,23 @@ func help_open() -> bool:
 	return _help
 
 
+## Pfeiltasten: die Auswahl in einer Kartenreihe von n Karten um dir weiterschieben (am Rand bleibt sie stehen).
+func kb_move(dir: int, n: int) -> void:
+	if n <= 0:
+		return
+	if kb_card < 0:
+		kb_card = 0 if dir > 0 else n - 1
+	else:
+		kb_card = clampi(kb_card + dir, 0, n - 1)
+
+
+## Die Lage, für die die Kartenauswahl gilt; ändert sie sich, ist nichts mehr gewählt.
+func kb_sync(ctx: String) -> void:
+	if ctx != _kb_ctx:
+		_kb_ctx = ctx
+		kb_card = -1
+
+
 func card_rect(i: int) -> Rect2:
 	return Rect2(CARD_X0 + i * CARD_STEP, CARD_Y, CARD_W, CARD_H)
 
@@ -161,6 +178,7 @@ func button_at(p: Vector2) -> String:
 func _process(delta: float) -> void:
 	_tick_fight(delta)
 	if voy != null:
+		kb_sync("%d|%d|%d|%s" % [voy.phase, voy.encounter, voy.perk_offer.size(), str(voy.shop_open)])
 		if voy.automat_open:
 			if slot_view == null:
 				slot_view = SlotView.new(voy)
@@ -534,6 +552,27 @@ func _pix_line(a: Vector2, b: Vector2, col: Color, dashed: bool, thick: int) -> 
 		draw_rect(Rect2(pts[k], sz), col)
 
 
+## Ereignis auf der Strecke: eine Raute aus Pixeln, gefüllt in der Farbe der Art (rot Gefahr, violett Spuk, gold Fund), hohl, solange
+## man nicht weiß, was dort liegt.
+func _route_mark(p: Vector2, id: int, known: bool) -> void:
+	var tone := Encounters.route_tone(id)
+	var col := RED if tone == "gefahr" else (VIOLET if tone == "spuk" else GOLD)
+	if not known:
+		col = Color(PAPER, 0.75)
+	for dy in range(-3, 4):
+		var w := 3 - absi(dy)
+		draw_rect(Rect2(p.x - w - 1, p.y + dy, w * 2 + 3, 1), UiSkin.INK)  # Umriss
+	for dy in range(-2, 3):
+		var w2 := 2 - absi(dy)
+		if known:
+			draw_rect(Rect2(p.x - w2, p.y + dy, w2 * 2 + 1, 1), col)
+		else:
+			draw_rect(Rect2(p.x - w2, p.y + dy, 1, 1), col)
+			draw_rect(Rect2(p.x + w2, p.y + dy, 1, 1), col)
+	if known:
+		draw_rect(Rect2(p.x - 1, p.y - 1, 1, 1), col.lightened(0.35))
+
+
 ## Vier Eckwinkel um einen Knoten (hart, ohne Verlauf).
 func _brackets(p: Vector2, half: int, col: Color, thick: int) -> void:
 	var n := 3.0
@@ -605,6 +644,21 @@ func _draw_chart(mouse: Vector2) -> void:
 			tip = Vector2(roundf(tip.x), roundf(tip.y))
 			draw_rect(Rect2(tip.x - 2, tip.y - 2, 5, 5), UiSkin.INK)
 			draw_rect(Rect2(tip.x - 1, tip.y - 1, 3, 3), GOLD)
+
+	# Ereignisse auf der Strecke: eine kleine Raute auf dem Weg (in Sichtweite); was es ist, zeigt die Farbe erst vom Knoten davor
+	for c in range(0, Voyage.MILES):
+		if c + 1 > vis:
+			continue
+		for i in (voy.map[c] as Array).size():
+			for ev in (voy.node_at(c, i).get("mid", []) as Array):
+				if bool(ev.get("done", false)):
+					continue
+				var pa := node_pos(c, i).lerp(node_pos(c + 1, int(ev["to"])), float(ev["t"]))
+				pa = Vector2(roundf(pa.x), roundf(pa.y))
+				var known_ev := voy.route_event_known(c)
+				_route_mark(pa, int(ev["id"]), known_ev)
+				var rr := Rect2(pa.x - 4, pa.y - 4, 9, 9)
+				_tip(rr, Tips.route_event(voy, int(ev["id"]), known_ev))
 
 	# Knoten: kleine Pixelsymbole je Begegnung, Seefarbe für leere Knoten, Wegstein für besuchte
 	_hover_node = []
@@ -737,7 +791,12 @@ func _preview_lines(d: Dictionary) -> Array:
 	else:
 		out.append(["+%s Meilen%s" % [Voyage.fmt(miles), "" if miles >= want - 0.05 else " (Hände fehlen)"], PAPER if miles >= want - 0.05 else GOLD, Tips.miles(voy, p)])
 		var target := ""
-		if arr.is_empty():
+		if String(p["stop"]) == "event":
+			var ev_id := int((p["event"] as Dictionary).get("id", -1))
+			var ev_col := voy.mile if arr.is_empty() else int(arr.back()[0])
+			var ev_name := String(Encounters.DATA[ev_id]["name"]) if (ev_id >= 0 and voy.route_event_known(ev_col)) else "etwas"
+			target = ("Meile %d, dann " % int(arr.back()[0]) if not arr.is_empty() else "") + "Halt unterwegs: %s" % ev_name
+		elif arr.is_empty():
 			target = "noch kein Knoten (%d %%)" % roundi(float(p["leg_after"]) * 100.0)
 		else:
 			var last: Array = arr.back()
@@ -867,7 +926,7 @@ func _draw_battle_cards(active: bool) -> void:
 		var opt: Dictionary = opts[i]
 		var r := Rect2(STRAT_X0 + float(i) * (w + gap), STRAT_Y, w, STRAT_H)
 		var ok := Encounters.available(voy, opt)
-		var hover := active and ok and r.has_point(mouse)
+		var hover := active and ok and (r.has_point(mouse) or kb_card == i)
 		_card(r, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if (active and ok) else UiSkin.State.DISABLED), 1.0 if active else 0.6)
 		_t(r.position + Vector2(5, 15), String(opt["label"]), GOLD if (active and ok) else DIM, 9, HORIZONTAL_ALIGNMENT_LEFT, w - 9.0)
 		var lines: Array = Battle.lines(voy, String(opt["tactic"]))
@@ -960,7 +1019,7 @@ func _draw_harbor_cards(active: bool) -> void:
 		var r := Rect2(STRAT_X0 + float(i) * (cw + gap), STRAT_Y, cw, STRAT_H)
 		var done := Encounters.used(voy, opt)
 		var ok := Encounters.available(voy, opt)
-		var hover := active and ok and r.has_point(mouse)
+		var hover := active and ok and (r.has_point(mouse) or kb_card == i)
 		_card(r, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if ok else UiSkin.State.DISABLED), 1.0 if active else 0.6)
 		_t(r.position + Vector2(5, 15), String(opt["label"]), GOLD if ok else DIM, 9, HORIZONTAL_ALIGNMENT_LEFT, cw - 9.0)
 		var lines: Array = Encounters.card_lines(voy, opt)
@@ -1001,7 +1060,7 @@ func _draw_encounter_cards() -> void:
 		var opt: Dictionary = opts[i]
 		var r := encounter_rect(i)
 		var ok := Encounters.available(voy, opt)
-		var hover := active and ok and r.has_point(mouse)
+		var hover := active and ok and (r.has_point(mouse) or kb_card == i)
 		_card(r, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if ok else UiSkin.State.DISABLED))
 		_t(r.position + Vector2(7, 16), String(opt["label"]), GOLD if ok else DIM, 10, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 14.0)
 		var lines: Array = Encounters.card_lines(voy, opt)
@@ -1679,7 +1738,7 @@ func _draw_perks(mouse: Vector2) -> void:
 	for i in n:
 		var p: Dictionary = Perks.DATA[String(voy.perk_offer[i])]
 		var r := Rect2(240.0 - float(n) * 76.0 + float(i) * 152.0 + 4.0, 92, 144, 134)
-		var hover := r.has_point(mouse)
+		var hover := r.has_point(mouse) or kb_card == i
 		UiSkin.panel(self, r, UiSkin.accent(UiSkin.State.HOVER) if hover else UiSkin.BRONZE_HI, 2, "tile_stone", true, Color.WHITE, hover)
 		ItemIcons.draw_emblem(self, String(voy.perk_offer[i]), Vector2(r.position.x + (r.size.x - float(ItemIcons.EMBLEM)) * 0.5, r.position.y + 9.0), Color.WHITE if hover else Color(0.92, 0.92, 0.92))
 		_t(Vector2(r.position.x, r.position.y + 58), String(p["name"]), GOLD, 11, HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 8.0)
@@ -1807,6 +1866,8 @@ var _ev_sk := ""
 var _fx := FightFx.new()  # Hiebbögen, Pfeile, Leuchten, Banner, Wackeln (scripts/fight_fx.gd)
 var _stage_dim := 0.0  # Abdunkelung des Hintergrunds, solange jemand handelt
 var _stage_xf := Transform2D.IDENTITY  # Kamera der Bühne (Wackeln und Schub), für die Kampfeffekte
+var kb_card := -1  # mit ← → gewählte Karte (Begegnung, Hafen, Schlacht, Segen); Enter nimmt sie
+var _kb_ctx := ""  # wechselt die Lage (andere Begegnung, Segen), beginnt die Auswahl von vorn
 var _dir: FightDirector = null  # die Kampfregie (scripts/fight_director.gd); kopflos null
 var _clock := 0.0  # Uhr der Anzeige (Atmen der Figuren), läuft in Echtzeit
 
@@ -3017,16 +3078,16 @@ func _draw_help() -> void:
 	_t(Vector2(0, 101), "So funktioniert die Überfahrt", GOLD, 11, HORIZONTAL_ALIGNMENT_CENTER, 480.0)
 	UiSkin.rule(self, 60.0, 420.0, 106.0, UiSkin.BRONZE, true)
 	var rows := [
-		["Seekarte (rechts)", "Kurs wählen: nächsten Knoten anklicken (Q W E)"],
+		["Seekarte (rechts)", "Kurs wählen: nächsten Knoten anklicken, Q W E oder ← →"],
 		["1–9  Manöver", "1–3 Segel, 4–6 Ruder, 7–9 Küste, oder die Knöpfe anklicken"],
-		["Enter / Auslaufen", "Eine Fahrt fahren. Vorher in Ruhe planen, es gibt keine Eile."],
+		["Enter / ↑ / Auslaufen", "Eine Fahrt fahren. Vorher in Ruhe planen, es gibt keine Eile."],
 		["Klick auf Mann  /  C", "wählen, dann tauschen; C öffnet die Mannschaftsansicht"],
 		["Kraft (grün)", "sinkt bei Arbeit, ab 40 müde, ab 15 sehr schwach. Ladung = Rast"],
-		["A  /  L", "Wachablösung an/aus  ·  Lager aufschlagen (Ankerbucht A auf der Karte)"],
+		["A  /  L", "Wachablösung an/aus  ·  Lager (Ankerbucht A auf der Karte)"],
 		["Verzweiflung (lila)", "steigt bei Verlusten und Sturm; bei 100 verzagt der Mann"],
 		["Buchstaben auf der Karte", "H Handel · I Insel · M Monster · T Hafen · D Dorf"],
-		["", "G Draugr · R Räuber · K Kraken · W Wrack"],
-		["Maus über einen Mann", "Steckbrief: Eigenschaften, Zustand, Bruder (gold) / Rivale (rot)"],
+		["", "G Draugr · R Räuber · K Kraken · W Wrack · Raute: unterwegs"],
+		["← →  Enter", "in Begegnung, Hafen, Schlacht und Segen: Karte wählen und nehmen"],
 		["B  /  G", "Schiff und Werft  /  Gedenkstein"],
 		["Esc H F11 M + −", "Hauptmenü, Hilfe, Vollbild, Ton an/aus, Lautstärke"],
 	]

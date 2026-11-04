@@ -33,7 +33,7 @@ Wie ein Kampfzug in Darkest Dungeon: Du siehst, was kommt, überlegst in Ruhe un
 4. **Auslaufen:** die Folgen laufen der Reihe nach ab, der Skalde kommentiert. Danach die nächste Fahrt.
 5. **Mann über Bord:** eigene Entscheidung. Seil werfen (Retter wählen, Aussicht in Prozent, kostet Proviant, evtl. Rumpf und Kraft) oder zurücklassen (alle verlieren Mut).
 
-**Strecke (stufenlos):** Eine Fahrt (eine „Wache“) bringt das Schiff so viele **Meilen** voran, wie Vortrieb und Besatzung hergeben, z. B. 1,1 oder 0,5. Eine Meile ist der Abstand zwischen zwei Knotenspalten. Das Schiff kann **zwischen zwei Knoten** liegen: Es fährt dann auf dem festgelegten Weg weiter, der Kurs ist gesetzt, die Karte zeigt es als Punkt auf der Strecke, die Vorschau nennt den Prozentsatz. Jeder erreichte Knoten wird einzeln abgehandelt (Seegang, Gefahr). **An einem Knoten mit Begegnung (auch am Hafen) hält das Schiff an**, der Rest der Strecke verfällt. Auch an jeder Gabelung (Knoten mit mehr als einem Weg) hält das Schiff an und der Rest der Strecke verfällt: den Weg wählt man selbst. Führt nur ein Weg weiter, fährt es durch. Der Seegang schadet auch auf offener Strecke (anteilig, mindestens 40 %).
+**Strecke (stufenlos):** Eine Fahrt (eine „Wache“) bringt das Schiff so viele **Meilen** voran, wie Vortrieb und Besatzung hergeben, z. B. 1,1 oder 0,5. Eine Meile ist der Abstand zwischen zwei Knotenspalten. Das Schiff kann **zwischen zwei Knoten** liegen: Es fährt dann auf dem festgelegten Weg weiter, der Kurs ist gesetzt, die Karte zeigt es als Punkt auf der Strecke, die Vorschau nennt den Prozentsatz. Jeder erreichte Knoten wird einzeln abgehandelt (Seegang, Gefahr). **An einem Knoten mit Begegnung (auch am Hafen) hält das Schiff an**, der Rest der Strecke verfällt; ebenso **an einem Ereignis unterwegs** (siehe Begegnungen), mitten auf dem Weg. Auch an jeder Gabelung (Knoten mit mehr als einem Weg) hält das Schiff an und der Rest der Strecke verfällt: den Weg wählt man selbst. Führt nur ein Weg weiter, fährt es durch. Der Seegang schadet auch auf offener Strecke (anteilig, mindestens 40 %).
 
 Der Seegang steuert Wellen, Regen und Blitze der Darstellung, das Schiff reitet auf einer echten Wellenfläche.
 
@@ -98,6 +98,25 @@ Wie in Darkest Dungeon, wenn man einen Raum durchsucht: Man kann sie über die W
 | **Wrack** (W) | Durchsuchen (oft ein Fund, darunter ein Gegenstand; manchmal eine Falle), Holz bergen (Rumpf +12), vorbeifahren |
 
 Gefallene Namen bleiben in der Gefallenenliste, auch wenn ihr Platz neu besetzt wird.
+
+### Unterwegs: Ereignisse zwischen zwei Knoten
+
+Wie die Gänge zwischen den Räumen in *Darkest Dungeon*: Auf einigen Wegen der Seekarte liegt etwas (je Etappe drei, später bis zu sechs, im Nebelmeer und in der Totensee eins mehr; höchstens eines je Knoten, nie auf dem ersten Weg und nie auf dem Weg in den Zielhafen). Die Karte zeigt es als **Raute auf dem Weg**: hohl, solange man nur weiß, dass dort etwas ist; gefüllt und gefärbt (rot Gefahr, violett Spuk, gold Fund), sobald man am Knoten davor liegt. Das Schiff **hält mitten auf dem Weg an**, der Rest der Strecke verfällt; die Vorschau sagt es vorher („Halt unterwegs: Treibgut“). Danach geht es auf demselben Kurs weiter. Neben dem Heck treibt ein Bild der Sache (`tools/make_route_props.py`). Die Karten funktionieren wie bei den Begegnungen; die letzte kostet immer nichts.
+
+| Ereignis | Karten |
+|---|---|
+| **Treibgut** | Bergen (Kraft −6: Proviant, Beute oder Holz, selten eine Verletzung), Weiterfahren |
+| **Schiffbrüchiger** | Aufnehmen (Proviant 1: oft ein neuer, halb erfrorener Mann, ohne Platz zeigt er sein gesunkenes Schiff; manchmal stirbt er, manchmal ist er ein Draugr), Fass zuwerfen, Weiterfahren (Verzweiflung +4) |
+| **Treibeis** | Durchrudern (Kraft −10), Umfahren (Proviant 1), Durchsegeln (45 %: Rumpf −14) |
+| **Enterhaken** | Abwehren (kleiner Deckkampf gegen zwei Räuber), Taue kappen (Kraft −8, 40 %: Beute −20) |
+| **Flaschenpost** | Öffnen (eine Karte: eine Meile mehr Sicht für die Etappe; Münzen; oder ein Abschiedsbrief), zurück ins Meer |
+| **Wal** | Jagen (Aussicht aus der Kampfstärke: Proviant +8, Beute +15, sonst Rumpf −12), ziehen lassen (Verzweiflung −5) |
+| **Irrlichter** | Folgen (selten ein Gegenstand, meist Verzweiflung und Rumpfschaden), Opfergabe (Proviant 1), Ohren zustopfen (Kraft −4) |
+| **Strudel** | Kräftig rudern (Kraft −14), Silber opfern (Beute 25), Treiben lassen (50 %: Rumpf −16) |
+| **Totenfloß** (ab Etappe 2) | Kämpfen (kleiner Deckkampf gegen zwei Draugr), Anzünden (Kraft −6, 25 %: Rumpf −8) |
+| **Fischschwarm** | Netze auswerfen (Proviant +4, Kraft −6), Weiterfahren |
+
+Mit den Etappen kommen mehr Räuberboote und Strudel; in Piratengewässern dreimal so viele Enterhaken, im Nebelmeer Irrlichter, in der Totensee Totenflöße, in der Sturmfront Strudel und Treibgut (`Encounters.random_route_type`).
 
 ## Seeschlacht (`scripts/battle.gd`)
 
@@ -170,7 +189,9 @@ Noch ohne Tondatei: *Stürmische See* (nur der Text liegt vor).
 
 | Eingabe | Wirkung |
 |---|---|
-| Klick auf einen Knoten (Seekarte rechts) oder Q / W / E | Kurs wählen; zwischen zwei Knoten steht er schon fest |
+| Klick auf einen Knoten (Seekarte rechts), Q / W / E oder ← / → | Kurs wählen (← → schieben ihn zum linken bzw. rechten Knoten der nächsten Meile); zwischen zwei Knoten steht er schon fest |
+| ↑ | Auslaufen wie Enter: auf der Karte nach vorn, eine Wache auf dem gewählten Kurs |
+| ← / → und Enter | in Begegnung, Hafen, Seeschlacht und beim Segen eine Karte wählen und nehmen |
 | 1 – 3 / 4 – 6 / 7 – 9 oder Klick auf einen Knopf | Segel / Ruder / Küste einstellen |
 | Begegnung: 1 – 3 oder Klick (Hafen 1 – 6, Seeschlacht 1 – 7) | Option bzw. Taktik wählen |
 | Enter oder „Auslaufen“ | eine Fahrt fahren |
@@ -180,6 +201,8 @@ Noch ohne Tondatei: *Stürmische See* (nur der Text liegt vor).
 | Werft: 1–3, R, P | Angebot kaufen, Rumpf reparieren, Pulver kaufen |
 | Esc | Auswahl aufheben, sonst Hauptmenü; nach dem Ende ins Hauptmenü |
 | H / F11 / M / + − / G / Strg+N | Hilfe, Vollbild, Ton, Lautstärke, Gedenkstein, neue Fahrt (zweimal) |
+
+**Warum kein freies Laufen wie in *Darkest Dungeon*?** (geprüft im November 2026) In Darkest Dungeon läuft die Gruppe mit den Pfeiltasten durch den Gang, auch zurück. Hier bestimmt das **Manöver** (Segel, Ruder, Küste), wie weit eine Wache das Schiff trägt, und jede Wache kostet Proviant: freies Fahren mit gehaltener Taste würde die Regler und die Proviant-Uhr aushebeln, die Leitplanke „keine Echtzeit“ brechen und Zurückfahren verlangen, das die Karte (nur vorwärts, Spalte für Spalte) nicht kennt. Übernommen ist deshalb, was dazu passt: Kurs und Karten mit den Pfeiltasten wählen, ↑ fährt los, und unterwegs halten Ereignisse das Schiff an wie die Kuriositäten im Gang.
 
 ## Testen ohne Spieler und ohne dass ein Fenster aufgeht (stört nicht bei der Arbeit am PC)
 

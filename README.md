@@ -41,6 +41,7 @@ godot --headless --path . --script tools/musictest.gd    # Musikregie (überspru
 godot --headless --path . --script tools/eventtest.gd    # Ereignisfelder des Deckkampfs (200 Kämpfe)
 godot --headless --path . --script tools/figtest.gd      # Körperfiguren: 25 Streifen, 780 Bilder, Rand, Anker, Ersatzbilder
 godot --headless --path . --script tools/directortest.gd # Kampfregie: Kamera, Beat-Arten, Zeitleisten, Zeitbudget, Standbild, 40 Kämpfe
+godot --headless --path . --script tools/keytest.gd -- --nosave --nohelp --seed=3   # Pfeiltasten: Kurs, Auslaufen, Karten, Segen
 godot --headless --path . --script tools/evhash.gd       # Logik-Prüfsumme der Kämpfe; muss 3356533480 bleiben
 godot --headless --path . -- --autoplay --log --timescale=25 --seed=3 --maxstage=8 --nosave    # ein Bot spielt eine Fahrt
 ```
@@ -52,7 +53,7 @@ Alles zusammen: `tools/dev/alltests.sh` (Linux/macOS/Git Bash). Unter Windows gi
 
 Das Spiel hat eingebaute Screenshot-Schalter (`--shot=bild.png@3` plus z. B. `--shotfight2`, `--shotslot=win`, `--shotcrew`;
 alle stehen im Kopf von `scripts/main.gd` und in `KONZEPT.md`). Zum Kampf: `--shotfx` (Pfeil), `--shotfx2` (Hieb), `--shotfx3` (Muskete),
-`--shotcrit` (kritischer Hieb), `--shotkill` (Todesstoß mit Kamerafahrt), `--shotform=draugr|raeuber|haendler|dorf|kraken`, `--norig`
+`--shotcrit` (kritischer Hieb), `--shotkill` (Todesstoß mit Kamerafahrt), `--shotroute=0..9` (Halt an einem Ereignis unterwegs, Bild nach etwa 9 s), `--shotform=draugr|raeuber|haendler|dorf|kraken`, `--norig`
 (alte Figuren). Die Regie spielt in Echtzeit ab: der Einschlag eines Hiebs liegt etwa 1,3 s (Einleitung) plus 0,25 s nach dem Start, also
 `--shot=bild.png@1.7`. `--fightsoak=6` spielt sechs Kämpfe nacheinander mit Anzeige (Dauertest unter Xvfb):
 
@@ -80,6 +81,7 @@ unter einer Minute und liefert byteweise dieselben Dateien wie die eingecheckten
 | `tools/make_slot_art.py` | `slots.png` (Walzensymbole) |
 | `tools/make_stage_art.py` | `stage_back.png`, `stage_rail.png`, `stage_deck.png`, `stage_glow.png`, `stage_fog.png` und `scripts/stage_atlas.gd` (Bühne des Deckkampfs: fünf Orte) |
 | `tools/make_fig_rig.py` | `assets/fig/<id>.png` (25 Streifen mit je 32 Bildern und einer weißen Zeile für den Trefferblitz) und `scripts/fig_atlas.gd` (Anker). Rechnet mit `rig_core.py` (Körper-Rig), `rig_figures.py` (23 Menschen), `rig_beasts.py` (Hund, Fangarm); `python -X utf8 -I tools/make_fig_rig.py sheet <Ordner>` zeichnet Kontaktblätter zum Ansehen (`docs/grafik/rig_*.png`) |
+| `tools/make_route_props.py` | `route_props.png` (Bilder der zehn Ereignisse unterwegs, treiben neben dem Heck) |
 | `tools/make_item_icons.py` | `item_icons.png` (36 Gegenstands-Symbole x 4 Seltenheiten), `perk_emblems.png` (14 Segen-Embleme) und `scripts/item_icons.gd`; Übersicht: `docs/grafik/` |
 | `tools/make_sfx.py` | `assets/sfx/*.wav` (Klänge; „It's alive!“ nutzt die Rohstimmen aus `tools/voice/`) |
 | `tools/make_music.py` | `Musik/Hintergrund/*.wav` |
