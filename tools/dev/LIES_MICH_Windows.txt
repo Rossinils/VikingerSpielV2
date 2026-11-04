@@ -16,6 +16,9 @@ Bedienung (kurz)
   F11                                                          Vollbild
   Esc                                                          Hauptmenü
 
+Kampfbild: Die Deckkämpfe haben eine eigene Bühne mit Licht, Nebel und Wetter. Wenn das Spiel auf einem schwachen Rechner
+ruckelt, stellt "Kampfbild: schlicht" in den Einstellungen (Hauptmenü, Esc) den bewegten Zierrat ab.
+
 Spielstand, Gedenkstein und Einstellungen liegen in:  %APPDATA%\Halt Kurs v2
 (Ordner löschen = ganz von vorn anfangen.)
 
