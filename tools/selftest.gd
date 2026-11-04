@@ -2049,6 +2049,9 @@ func _init() -> void:
 	var rescued := Persist.load_run()
 	check(rescued.has("map") and rescued.has("crew") and int(rescued["mile"]) == pv.mile, "Speichern: eine abgeschnittene Datei fällt auf die Sicherung zurück")
 	Persist.save_run(pv)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Persist.run_path))  # wie nach einem Abbruch zwischen Löschen und Umbenennen
+	check(Persist.has_run() and Persist.resumable(Persist.load_run()), "Speichern: fehlt die Hauptdatei, wird die Sicherung fortgesetzt")
+	Persist.save_run(pv)
 	check(Persist.resumable(saved), "Spielstand enthält alle Schlüssel, die das Fortsetzen braucht")
 	var broken := saved.duplicate()
 	broken.erase("enc_done")

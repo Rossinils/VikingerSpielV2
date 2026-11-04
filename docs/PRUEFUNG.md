@@ -48,13 +48,20 @@ Die Darstellung unter Windows (Vulkan) kann in Farbe und Schatten leicht abweich
 | Werkzeug | Zweck |
 |---|---|
 | `tools/dev/alltests.sh [--bots]` | alle Tests nacheinander, Ende-Code ≠ 0 bei Fehlern (~15 s ohne Bots) |
-| `tools/dev/shot.sh`, `shots_all.sh` | Screenshots unter Linux/Cloud (Xvfb) von 36 Bildschirmen; `shots_all.sh` sammelt die `--textcheck`-Meldungen |
+| `tools/dev/shot.sh`, `shots_all.sh` | Screenshots unter Linux/Cloud (Xvfb) von 35 Bildschirmen; `shots_all.sh` sammelt die `--textcheck`-Meldungen |
 | `tools/dev/runbots.sh`, `rungd.sh` | Gegenstücke zu den `.ps1`-Hilfen |
 | `--textcheck` (Spielschalter) | meldet Text, der breiter als sein Feld ist; ohne Sicherheitsnetz wäre er abgeschnitten |
 | `tools/eventtest.gd` | 200 Kämpfe: Ereignisfelder, `FightLevel`, `FightGeo`, `stage_t` |
 
 ## Bekannte Meldungen von `--textcheck`
 
-Texte, die das Sicherheitsnetz heute eine Stufe kleiner setzt (lesbar, aber ein Hinweis, bei Gelegenheit zu kürzen):
-„Funde: Proviant, Beute, Holz“, „Nornenwalzen“, „Proviant +3 wahrscheinlich“, „Rauferei? 15 %“ (Kartentexte, 98 bzw. 54 px breit) und
-lange Wertezeilen epischer und legendärer Schiffsgegenstände (Größe 6).
+Lauf über alle 35 Bildschirme (`tools/dev/shots_all.sh`). Diese Texte setzt das Sicherheitsnetz heute eine Stufe kleiner oder kürzt sie;
+lesbar, aber ein Hinweis, sie bei Gelegenheit zu kürzen (Breite in Klammern):
+
+* Kartentexte, 54 px: „Nornenwalzen“, „Rauferei? 15 %“, „Gegnerzug ×0,4“, „Gegnerbesatzung“ (Größe 6), „Verluste möglich“ (Größe 6),
+  „keine Kanonen“, „gibt es welche“
+* Kartentexte, 98 px: „Funde: Proviant, Beute, Holz“, „Proviant +3 wahrscheinlich“
+* Werft: „Rammschaden +13 · eigener Rammschaden −66 % · Rumpf +10“ (192 px, Größe 6; epische und legendäre Gegenstände haben oft drei Werte)
+* Titel „Rüstkammer“ (Größe 15 statt 16), Hinweiszeile der Schmiede (Größe 6 statt 7)
+
+Das Bild „Kraken“ beendet sich mit der Engine-Meldung „1 resources still in use at exit“ (harmlos, nur beim Beenden).

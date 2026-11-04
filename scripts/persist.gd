@@ -21,8 +21,10 @@ static func resumable(d: Dictionary) -> bool:
 	return true
 
 
+## Gibt es etwas zum Fortsetzen? Auch die Sicherung zählt: bricht das Spiel beim Austauschen der Datei ab (Windows löscht
+## zuerst die alte), fehlt die Hauptdatei, die vorige gute Fassung liegt aber noch als .bak da.
 static func has_run() -> bool:
-	return FileAccess.file_exists(run_path)
+	return FileAccess.file_exists(run_path) or FileAccess.file_exists(run_path + ".bak")
 
 
 static func save_run(v: Voyage) -> void:
