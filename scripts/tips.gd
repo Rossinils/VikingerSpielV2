@@ -212,7 +212,21 @@ static func stage(voy: Voyage) -> Dictionary:
 	return _tip("Etappe %d" % voy.stage, [
 		_l("Eine Etappe sind %d Meilen bis zum nächsten Hafen. Mit jeder Etappe wird die See härter: +%d %% Seegangs- und Gefahrenschaden je Etappe (jetzt ×%s) und die Gegner zäher." % [Voyage.MILES, roundi(Voyage.STAGE_HARDNESS * 100.0), Voyage.fmt(voy.stage_mul())]),
 		_l("Dafür wächst die Beute um 12 %% je Etappe (jetzt +%d %%)." % roundi(12.0 * float(voy.stage - 1)), DIM),
+		_l("Schwierigkeit: %s. %s" % [voy.diff_name(), Voyage.diff_text(voy.difficulty)], GOLD),
 	])
+
+
+## Die Sturmfront: wie weit sie zurückliegt, wie schnell sie kommt, was sie anrichtet.
+static func storm(voy: Voyage) -> Dictionary:
+	var gap := voy.front_gap()
+	var lines: Array = []
+	if voy.storm_next():
+		lines.append(_l("Die Sturmfront hat euch eingeholt. Solange sie über dem Schiff steht, geht die See einen Grad schwerer und jede Wache kostet alle an Bord 3 Verzweiflung.", RED))
+	else:
+		lines.append(_l("Die Sturmfront liegt %s Meilen hinter dem Schiff." % Voyage.fmt(gap)))
+	lines.append(_l("Sie rückt je Wache %s Meilen vor (Schwierigkeit %s), beim Lagern %s Meilen. Wer zügig segelt, bleibt vor ihr; wer trödelt oder rastet, wird eingeholt." % [Voyage.fmt(voy.front_speed()), voy.diff_name(), Voyage.fmt(Voyage.FRONT_CAMP)], DIM))
+	lines.append(_l("Im Hafen zieht sie vorbei: jede Etappe beginnt mit neuem Vorsprung.", DIM))
+	return _tip("Sturmfront", lines)
 
 
 static func level(voy: Voyage) -> Dictionary:

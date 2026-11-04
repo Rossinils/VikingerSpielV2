@@ -589,6 +589,38 @@ func _brackets(p: Vector2, half: int, col: Color, thick: int) -> void:
 			draw_rect(Rect2(x2, y2, t, n), col)
 
 
+## Die Sturmfront auf der Karte: ein dunkles Band von unten bis zu ihrer Lage, oben eine gezackte Kante, die sich langsam regt.
+func _draw_storm_band() -> void:
+	var fy := CHART_TOP + (Voyage.MILES - voy.front) * CHART_STEP
+	var bottom := CHART_RECT.end.y - 3.0
+	var left := CHART_RECT.position.x + 3.0
+	var right := CHART_RECT.end.x - 3.0
+	if fy >= bottom - 1.0:
+		# noch unter dem Kartenrand: nur eine gestrichelte Kante unten (wie weit, steht in der Vorschau)
+		for xs in range(int(left), int(right), 4):
+			draw_rect(Rect2(xs, bottom - 1.0, 2, 1), Color(VIOLET, 0.6))
+		_tip(Rect2(left, bottom - 4.0, right - left, 4.0), Tips.storm(voy))
+		return
+	var top := maxf(fy, CHART_RECT.position.y + 3.0)
+	draw_rect(Rect2(left, top, right - left, bottom - top), Color(0.16, 0.1, 0.24, 0.42))
+	var phase := Time.get_ticks_msec() / 260
+	var x := left
+	var k := 0
+	while x < right:
+		var j := float(((k * 7 + phase) % 5) - 2)
+		var yy := roundf(fy + j * 0.8)
+		if yy > CHART_RECT.position.y + 3.0 and yy < bottom:
+			draw_rect(Rect2(x, yy, minf(3.0, right - x), 1), Color(VIOLET, 0.85))
+		x += 3.0
+		k += 1
+	# schräge Regenstriche im Band
+	var y0 := int(top) + 3
+	for yy2 in range(y0, int(bottom) - 2, 6):
+		for xx in range(int(left) + ((yy2 + phase) % 9), int(right) - 2, 11):
+			draw_rect(Rect2(xx, yy2, 1, 2), Color(0.62, 0.55, 0.8, 0.35))
+	_tip(Rect2(left, top, right - left, maxf(bottom - top, 8.0)), Tips.storm(voy))
+
+
 func _draw_chart(mouse: Vector2) -> void:
 	if UiSkin.atlas() != null:
 		UiSkin.spr(self, "chart", CHART_RECT.position)
@@ -605,6 +637,8 @@ func _draw_chart(mouse: Vector2) -> void:
 	var vis := voy.visible_cols()
 	var planning := voy.phase == Voyage.Phase.PLAN
 	var links_now: Array = voy.next_links() if (planning and voy.leg <= 0.0) else []
+
+	_draw_storm_band()
 
 	# Wege: gestrichelte Pixellinien in Tintenfarbe, besuchte Strecke durchgezogen in Gold
 	for c in Voyage.MILES:
@@ -814,6 +848,11 @@ func _preview_lines(d: Dictionary) -> Array:
 	var left := voy.proviant - int(p["proviant"])
 	var to_harbor := voy.harbor_distance()
 	out.append(["Proviant −%d, dann %d · Hafen %s" % [int(p["proviant"]), maxi(left, 0), Voyage.fmt(to_harbor)], RED if float(left) < to_harbor + 1.0 else PAPER, Tips.food(voy, p)])
+	if bool(p.get("storm", false)):
+		out.append(["Im Sturm! See +1, Verzweiflung +3", RED, Tips.storm(voy)])
+	else:
+		var gap := voy.front_gap()
+		out.append(["Sturmfront %s Meilen achteraus" % Voyage.fmt(gap), GREEN if gap > 2.0 else (GOLD if gap >= 1.0 else RED), Tips.storm(voy)])
 	var after := float(p["hull_after"])
 	var now := roundi(voy.hull)
 	if after <= 0.0:
@@ -1309,6 +1348,7 @@ func _draw_settings(mouse: Vector2) -> void:
 	rows.append(["Kampfbild", "voll" if Settings.stage_fx != 0 else "schlicht", "tstage", "tstage"])
 	rows.append(["Kampfansicht", "voll" if Settings.fight_view == 0 else "kurz", "tview", "tview"])
 	rows.append(["Wackeln", ["aus", "schwach", "normal"][clampi(Settings.shake, 0, 2)], "tshake", "tshake"])
+	rows.append(["Schwierigkeit (neue Fahrt)", String(Voyage.DIFFICULTY[clampi(Settings.difficulty, 0, 2)]["name"]), "tdiff", "tdiff"])
 	var step := 24.0 if rows.size() <= 7 else 19.0  # mit allen Zeilen rückt es enger zusammen, damit „Zurück“ noch auf den Schirm passt
 	var y0 := 98.0 if rows.size() <= 7 else 86.0
 	for i in rows.size():
@@ -2276,8 +2316,10 @@ func _on_cue(kind: String, d: Dictionary) -> void:
 				Sfx.play(Sfx.skill_sound(sk2, "hit"), 2.0 if crit else 0.0)
 				if crit:
 					Sfx.play("clash", -6.0)
-				if lv >= FightLevel.HEAVY:
-					Sfx.play("bash", -6.0 + (6.0 if crit else 0.0))  # schwerer Treffer: dumpfe Schicht darunter
+				if lv >= FightLevel.KILL:
+					Sfx.play("deathblow")  # Todesstoß: ein Schlag wie ein zufallendes Tor, langer Nachhall
+				elif lv >= FightLevel.HEAVY:
+					Sfx.play("hit_heavy", -2.0 + (3.0 if crit else 0.0))  # schwerer Treffer: dumpfe Schicht darunter
 			_fx_impact(d["att"], tgt, sk2, lv, crit, int(d["n"]))
 		"miss":
 			Sfx.play("whiff")

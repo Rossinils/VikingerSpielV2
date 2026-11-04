@@ -227,6 +227,19 @@ func _test_planner() -> void:
 	var bm: BeatPlanner.Beat = cases["mann_faellt"]
 	check(bm.slows.size() == 2 and absf(float(bm.slows[0][2]) - 0.35) < 0.01 and absf(float(bm.slows[1][2]) - 0.3) < 0.01, "Mann fällt: Zeitlupe 0,35 davor, 0,3 danach")
 	check(bm.zoom_want == 1.375, "Mann fällt: Zoom 1,375")
+	var snd_in := ""
+	var snd_out := ""
+	for cu in bm.cues:
+		if String(cu["kind"]) == "sfx" and String(cu["data"]["name"]).begins_with("slow_"):
+			if String(cu["data"]["name"]) == "slow_in":
+				snd_in = str(float(cu["t"]) == float(bm.slows[0][0]))
+			else:
+				snd_out = str(float(cu["t"]) == float(bm.slows[1][1]))
+	var nsl := 0
+	for cu2 in bn.cues:
+		if String(cu2["kind"]) == "sfx" and String(cu2["data"]["name"]).begins_with("slow_"):
+			nsl += 1
+	check(snd_in == "true" and snd_out == "true" and nsl == 0 and Sfx.GAIN.has("slow_in") and Sfx.GAIN.has("slow_out"), "Zeitlupe hörbar: Klang beim Eintritt und Austritt, normaler Hieb ohne")
 	var bl: BeatPlanner.Beat = cases["flaeche_3"]
 	check(bl.freezes.size() == 3 and float(bl.freezes[1][1]) < float(bl.freezes[0][1]), "Fläche: weitere Treffer mit kürzerem Standbild")
 	# Ermüdung: dritte gleichartige Handlung in Folge

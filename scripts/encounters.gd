@@ -16,6 +16,11 @@ enum Id { HAENDLER, INSEL, UNGEHEUER, HAFEN, DORF, DRAUGR, RAEUBER, KRAKEN, WRAC
 	TREIBGUT, SCHIFFBRUECHIGER, TREIBEIS, ENTERHAKEN, FLASCHENPOST, WAL, IRRLICHTER, STRUDEL, TOTENFLOSS, FISCHSCHWARM }
 ## Ereignisse auf der Strecke (zwischen zwei Knoten, wie die Gänge in Darkest Dungeon): Id ab hier, siehe random_route_type()
 const ROUTE_FIRST := Id.TREIBGUT
+## Klang, wenn das Schiff an einem Streckenereignis hält (Id → Name in Sfx.GAIN)
+const ROUTE_SND := {
+	Id.TREIBGUT: "wave", Id.SCHIFFBRUECHIGER: "splash", Id.TREIBEIS: "ice", Id.ENTERHAKEN: "sting", Id.FLASCHENPOST: "mug",
+	Id.WAL: "whale", Id.IRRLICHTER: "wisp", Id.STRUDEL: "whirl", Id.TOTENFLOSS: "wail", Id.FISCHSCHWARM: "splash",
+}
 
 const WEIGHTS := [35, 40, 25, 0, 30, 18, 14, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # Hafen wird fest platziert, nicht gewürfelt; das Spielschiff kommt erst ab Etappe 2; Streckenereignisse nie auf Knoten
 ## Gewichte der Streckenereignisse (Id ab ROUTE_FIRST), Etappe und Thema verschieben sie, siehe random_route_type()

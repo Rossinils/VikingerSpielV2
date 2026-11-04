@@ -479,4 +479,13 @@ static func _cues(b: Beat, atk: Dictionary) -> void:
 				break
 		for k2 in 2:
 			b.cues.append({"t": th + (330.0 + 270.0 * float(k2)) * km, "kind": "sfx", "data": {"name": "heartbeat", "db": 0.0, "pitch": 1.0}})
+	if not b.slows.is_empty():
+		# Zeitlupe hörbar: die Zeit dehnt sich beim Eintritt, beim Austritt läuft sie mit einem Rauschen wieder an
+		var s_in := INF
+		var s_out := 0.0
+		for sl in b.slows:
+			s_in = minf(s_in, float(sl[0]))
+			s_out = maxf(s_out, float(sl[1]))
+		b.cues.append({"t": s_in, "kind": "sfx", "data": {"name": "slow_in", "db": 0.0, "pitch": 1.0}})
+		b.cues.append({"t": s_out, "kind": "sfx", "data": {"name": "slow_out", "db": 0.0, "pitch": 1.0}})
 	b.cues.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return float(x["t"]) < float(y["t"]))

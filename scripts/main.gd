@@ -45,6 +45,7 @@ var _shot_fight := 0  # Deckkampf: 1 Aufstellung, 2 Kampf, 3 Kampf mit gewählte
 var _shot_form := ""  # --shotform=draugr|raeuber|haendler|dorf|kraken: Ort des Deckkampfs bei --shotfight2/3
 var _shot_kraken := 0  # Deckkampf gegen den Kraken: 1 mit Griff und Tinte, 2 Körper offen und spannt sich (--shotkraken, --shotkraken2)
 var _shot_fx := 0  # Deckkampf mitten im Schuss (1, --shotfx), Hieb (2, --shotfx2) oder Musketenschuss (3, --shotfx3)
+var _shot_front := 99.0  # --front=X: die Sturmfront steht X Meilen hinter dem Schiff (Screenshot)
 var _shot_route := -1  # --shotroute=N: das Schiff fährt los und hält am Streckenereignis N (0 Treibgut ... 9 Fischschwarm)
 var _soak := 0  # --fightsoak=N: N Deckkämpfe nacheinander mit Anzeige und Regie spielen (Dauertest unter Xvfb), danach beenden
 var _soak_done := 0
@@ -140,6 +141,8 @@ func _ready() -> void:
 			_shot_fx = int(arg.substr(arg.length() - 1)) if arg != "--shotfx" else 1
 		elif arg.begins_with("--shotroute="):
 			_shot_route = int(arg.substr(12))
+		elif arg.begins_with("--front="):
+			_shot_front = float(arg.substr(8))
 		elif arg.begins_with("--fightsoak="):
 			_soak = int(arg.substr(12))
 		elif arg == "--shotkill" or arg == "--shotcrit":
@@ -176,6 +179,7 @@ func _ready() -> void:
 	_voy.autosave = _persist
 	_voy.auto_combat = _bot != "" or (_persist and Settings.auto_combat)
 	_voy.max_stage = _max_stage if _max_stage > 0 else (6 if _bot != "" else 0)
+	_voy.difficulty = Settings.difficulty if _persist else 1  # Tests, Bots und Screenshots spielen auf „Sturm“
 	_voy.automat_bonus_on = _bot != "" or _shot_path == ""  # Freidrehs nach Siegen: im echten Spiel und bei Bots, nicht in Screenshots
 	if _memtest:
 		Persist.run_path = "user://shot_run.json"
@@ -322,6 +326,9 @@ func _ready() -> void:
 		for pm in _voy.fight_prep["party"]:
 			if pm.role == Roles.Id.MUSKET:
 				_hud._loadout_man = pm
+	if _shot_front < 99.0:
+		_hud.hide_help()
+		_voy.front = _voy.ship_at() - _shot_front
 	if _shot_route >= 0:  # Screenshot: Halt mitten auf dem ersten Weg an einem Streckenereignis
 		_hud.hide_help()
 		var rto := int(_voy.node_at(0, 0)["links"][0])
@@ -749,6 +756,9 @@ func _setting_click(id: String) -> void:
 			Settings.save_all()
 		"tview":
 			Settings.fight_view = 1 if Settings.fight_view == 0 else 0  # Kampfansicht: voll (Zoom, Zeitlupe, Standbild) oder kurz (halbe Zeiten)
+			Settings.save_all()
+		"tdiff":
+			Settings.difficulty = (Settings.difficulty + 1) % 3  # gilt ab der nächsten neuen Fahrt
 			Settings.save_all()
 		"tshake":
 			Settings.shake = (Settings.shake + 2) % 3  # Wackeln: normal -> schwach -> aus
