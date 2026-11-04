@@ -219,6 +219,12 @@ const LINES := {
 	"monster_lose": [
 		"Es war größer, als die Geschichten sagten. {n} gehört jetzt dem Meer, das Ungeheuer dem Abendessen.",
 	],
+	"monster_harpoon": [
+		"Die Harpune fährt tief, die Leine singt. Das Ungeheuer zieht uns eine Meile weit, dann zieht es nicht mehr.",
+	],
+	"monster_harpoon_miss": [
+		"Die Harpune trifft, aber nur die Haut. Das Ungeheuer nimmt es persönlich und den Rumpf gleich mit.",
+	],
 	"monster_pay": [
 		"Wir opfern Proviant. Das Ungeheuer nimmt an und ist, wie alle Schnorrer, nicht dankbar.",
 	],
@@ -442,6 +448,9 @@ const LINES := {
 	"ice_crash": [
 		"Eine Scholle, die keiner sah, sieht uns. Das Krachen hört man noch lange in den Planken.",
 	],
+	"ice_tar": [
+		"Frischer Teer auf den Bug, und das Schiff schiebt die Schollen wie ein Bauer die Schafe. Unhöflich, aber heil.",
+	],
 	"ice_around": [
 		"Wir fahren außen herum, eine Wache länger. Das Eis hat Zeit, wir haben Proviant.",
 	],
@@ -480,6 +489,9 @@ const LINES := {
 	],
 	"whale_win": [
 		"Der Wal ist erlegt. Fleisch, Tran und Fischbein für Wochen. Die Ruderer riechen danach noch länger.",
+	],
+	"whale_harpoon": [
+		"Ein Wurf, eine Leine, ein langer Ritt. Am Ende ist der Wal ruhig und wir sind reich an Tran.",
 	],
 	"whale_lose": [
 		"Der Wal schlägt einmal mit der Flosse, und das Schiff lernt fliegen, kurz. Die Landung ist schlechter.",
@@ -529,6 +541,9 @@ const LINES := {
 	],
 	"raft_burn": [
 		"Pech und Feuer, und das Floß brennt wie ein Grab bei den Alten. Die Männer singen, ohne es zu wollen.",
+	],
+	"raft_tar": [
+		"Teer auf das Floß, eine Fackel hinterher. Es brennt so gründlich, dass selbst die Toten Ruhe geben.",
 	],
 	"raft_burn_bad": [
 		"Das Floß brennt, und ein brennender Toter klettert noch bis an unsere Reling. Wir löschen den Rumpf, dann ihn.",

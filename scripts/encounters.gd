@@ -106,11 +106,21 @@ const DATA := [
 		"options": [
 			{
 				"label": "Kämpfen",
-				"lines": ["Aussicht {ch} %", "Sieg: Beute +60, Mut +10", "Verlust: ein Mann, Rumpf −25"],
+				"lines": ["Aussicht {ch} %", "Sieg: Beute +60, Mut +10", "Verlust: Tod, Rumpf −25"],
 				"fight": {"base": 0.25, "per": 0.45, "min": 0.1, "max": 0.8},
 				"outcomes": [
 					{"fx": {"loot": 60, "wound": 1, "stress_all": -10}, "lore": "monster_win"},
 					{"fx": {"kill": 1, "hull": -25, "wound": 2, "stress_all": 15}, "lore": "monster_lose"},
+				],
+			},
+			{
+				"label": "Harpunieren",
+				"lines": ["Kosten: Harpune 1", "Aussicht {ch} %", "Sieg: Beute +60"],
+				"cost": {"harpune": 1},
+				"fight": {"base": 0.5, "per": 0.4, "min": 0.35, "max": 0.92},
+				"outcomes": [
+					{"fx": {"loot": 60, "stress_all": -10}, "lore": "monster_harpoon"},
+					{"fx": {"hull": -15, "wound": 1, "stress_all": 8}, "lore": "monster_harpoon_miss"},
 				],
 			},
 			{
@@ -318,6 +328,16 @@ const DATA := [
 				],
 			},
 			{
+				"label": "Verband und Decke",
+				"lines": ["Kosten: Verband 1, Proviant 1", "meist ein neuer Mann"],
+				"cost": {"verband": 1, "proviant": 1},
+				"outcomes": [
+					{"w": 75, "fx": {"castaway": 1, "stress_all": -4}, "lore": "castaway_join"},
+					{"w": 15, "fx": {"stress_all": -6}, "lore": "castaway_dies"},
+					{"w": 10, "fx": {"wound": 1, "stress_all": 8}, "lore": "castaway_draugr"},
+				],
+			},
+			{
 				"label": "Fass zuwerfen",
 				"lines": ["Kosten: Proviant 1", "Verzweiflung −3", "er bleibt im Wasser"],
 				"cost": {"proviant": 1},
@@ -344,6 +364,12 @@ const DATA := [
 				"lines": ["Kosten: Proviant 1", "kostet Zeit, sonst nichts"],
 				"cost": {"proviant": 1},
 				"outcomes": [{"fx": {}, "lore": "ice_around"}],
+			},
+			{
+				"label": "Geteert durch",
+				"lines": ["Kosten: Teerfass 1", "der Bug hält, sicher"],
+				"cost": {"teer": 1},
+				"outcomes": [{"fx": {}, "lore": "ice_tar"}],
 			},
 			{
 				"label": "Durchsegeln",
@@ -410,6 +436,16 @@ const DATA := [
 				"outcomes": [
 					{"fx": {"proviant": 8, "loot": 15, "kraft_all": -8}, "lore": "whale_win"},
 					{"fx": {"hull": -12, "wound": 1, "kraft_all": -8, "stress_all": 6}, "lore": "whale_lose"},
+				],
+			},
+			{
+				"label": "Harpune werfen",
+				"lines": ["Kosten: Harpune 1", "Aussicht {ch} %", "Proviant +10, Beute +20"],
+				"cost": {"harpune": 1},
+				"fight": {"base": 0.6, "per": 0.35, "min": 0.45, "max": 0.95},
+				"outcomes": [
+					{"fx": {"proviant": 10, "loot": 20, "kraft_all": -4}, "lore": "whale_harpoon"},
+					{"fx": {"hull": -6, "kraft_all": -4}, "lore": "whale_lose"},
 				],
 			},
 			{
@@ -482,6 +518,12 @@ const DATA := [
 					{"fx": {"loot": 25, "stress_all": -6}, "lore": "raft_win"},
 					{"fx": {"wound": 2, "stress_all": 10}, "lore": "raft_lose"},
 				],
+			},
+			{
+				"label": "Teer und Feuer",
+				"lines": ["Kosten: Teerfass 1", "es brennt sicher ab", "Verzweiflung −6"],
+				"cost": {"teer": 1},
+				"outcomes": [{"fx": {"stress_all": -6}, "lore": "raft_tar"}],
 			},
 			{
 				"label": "Anzünden",
@@ -594,10 +636,13 @@ static func option(id: int, i: int) -> Dictionary:
 	return opts[i]
 
 
-## Aussicht auf Erfolg (0..1) bei Kampf-Optionen.
-static func chance(voy: Voyage, opt: Dictionary) -> float:
+## Aussicht auf Erfolg (0..1) bei Kampf-Optionen. focus: mit Fokus (+15 Punkte, höchstens 95 %).
+static func chance(voy: Voyage, opt: Dictionary, focus: bool = false) -> float:
 	var f: Dictionary = opt["fight"]
-	return clampf(float(f["base"]) + float(f["per"]) * voy.strength(), float(f["min"]), float(f["max"]))
+	var c := clampf(float(f["base"]) + float(f["per"]) * voy.strength(), float(f["min"]), float(f["max"]))
+	if focus:
+		c = minf(c + Voyage.FOCUS_BONUS, maxf(0.95, c))
+	return c
 
 
 static func is_harbor(id: int) -> bool:
@@ -628,6 +673,9 @@ static func available(voy: Voyage, opt: Dictionary) -> bool:
 		return false
 	if int(cost.get("proviant", 0)) > voy.proviant:
 		return false
+	for sk in Supplies.cost_keys(cost):
+		if voy.supply(String(sk)) < int(cost[sk]):
+			return false
 	return true
 
 
@@ -705,7 +753,7 @@ static func card_lines(voy: Voyage, opt: Dictionary) -> Array:
 	var out: Array = []
 	var ch := 0
 	if opt.has("fight"):
-		ch = roundi(chance(voy, opt) * 100.0)
+		ch = roundi(chance(voy, opt, voy.focus_armed and Voyage.focus_applies(opt)) * 100.0)
 	var rn := String(voy.recruit.get("name", "–"))
 	var rk := str(int(voy.recruit.get("kraft", 0)))
 	var rt := ""
@@ -731,19 +779,29 @@ static func _scale_loot_text(voy: Voyage, text: String) -> String:
 	return out
 
 
-static func pick(voy: Voyage, opt: Dictionary) -> Dictionary:
+## Würfelt den Ausgang. focus: bei Kampfproben bessere Aussicht, sonst zwei Würfe, der bessere zählt (die Ausgänge
+## stehen vom besten zum schlechtesten).
+static func pick(voy: Voyage, opt: Dictionary, focus: bool = false) -> Dictionary:
 	var outs: Array = opt["outcomes"]
 	if opt.has("fight"):
-		return outs[0] if randf() < chance(voy, opt) else outs[1]
+		return outs[0] if randf() < chance(voy, opt, focus) else outs[1]
+	if focus and outs.size() >= 2:
+		var a := _roll_index(outs)
+		var b := _roll_index(outs)
+		return outs[mini(a, b)]
+	return outs[_roll_index(outs)]
+
+
+static func _roll_index(outs: Array) -> int:
 	var total := 0.0
 	for o in outs:
 		total += float(o.get("w", 1.0))
 	var r := randf() * total
-	for o in outs:
-		r -= float(o.get("w", 1.0))
+	for i in outs.size():
+		r -= float((outs[i] as Dictionary).get("w", 1.0))
 		if r < 0.0:
-			return o
-	return outs[outs.size() - 1]
+			return i
+	return outs.size() - 1
 
 
 static func fx_summary(fx: Dictionary) -> String:

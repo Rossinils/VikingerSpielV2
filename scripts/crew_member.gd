@@ -12,6 +12,7 @@ var slot := -1  # Decksplatz (Index in Stations.SLOTS), -1 solange er im Wasser 
 var home_slot := -1  # Platz, auf den er nach der Rettung zurück will
 
 var kraft := 100.0  # Kraft 0..100; unter 40 lässt die Arbeitsleistung nach
+var fokus := 2  # Fokuspunkte dieser Etappe (Voyage.FOCUS_MAX): bessere Aussicht oder ein zweiter Wurf bei Proben
 var stress := 0.0  # Verzweiflung; bei 100 kippt er
 var afflicted := false  # nach dem Kippen: verzagt (halbe Leistung, steckt an) oder Berserker (stärker, aber unberechenbar)
 var affliction: int = Affliction.NONE

@@ -2519,6 +2519,7 @@ func _init() -> void:
 
 	_test_route_events()
 	_test_storm_difficulty()
+	_test_supplies_focus()
 
 	print("FEHLER: ", fails)
 	quit(1 if fails > 0 else 0)
@@ -2567,6 +2568,93 @@ func _test_storm_difficulty() -> void:
 	w2.free()
 
 
+func _test_supplies_focus() -> void:
+	seed(21)
+	var v := Voyage.new()
+	v.auto_combat = true
+	root.add_child(v)
+	v.begin()
+	# Krämer: nur im Hafen, kostet Beute, Höchstmenge
+	v.loot = 500.0
+	check(not v.buy_supply("teer"), "Vorräte: auf See gibt es keinen Krämer")
+	v.shop_open = true
+	var bought := 0
+	for k in 5:
+		if v.buy_supply("teer"):
+			bought += 1
+	check(bought == Supplies.cap("teer") and is_equal_approx(v.loot, 500.0 - float(bought * Supplies.price(v, "teer"))), "Vorräte: Teerfass bis zur Höchstmenge (%d), Beute passend abgezogen" % bought)
+	v.buy_supply("verband")
+	v.buy_supply("schnaps")
+	v.buy_supply("harpune")
+	v.shop_open = false
+	# Einsetzen auf See: nur mit Wirkung
+	check(v.phase == Voyage.Phase.PLAN and not v.can_use_supply("teer"), "Vorräte: Teer bei heilem Rumpf ohne Wirkung, nicht einsetzbar")
+	v.hull = v.hull_max() - 30.0
+	var h0 := v.hull
+	check(v.use_supply("teer") and is_equal_approx(v.hull, h0 + 15.0) and v.supply("teer") == bought - 1, "Vorräte: Teer gibt Rumpf +15")
+	var weak: CrewMember = v.crew[2]
+	weak.kraft = 20.0
+	check(v.use_supply("verband") and is_equal_approx(weak.kraft, 50.0), "Vorräte: Verband gibt dem Schwächsten Kraft +30")
+	for m in v.crew:
+		m.stress = 30.0
+	check(v.use_supply("schnaps") and is_equal_approx((v.crew[0] as CrewMember).stress, 22.0), "Vorräte: Schnaps senkt die Verzweiflung aller um 8")
+	check(not v.use_supply("harpune") and v.supply("harpune") == 1, "Vorräte: die Harpune wirkt nicht von allein")
+	# Karten, die Vorräte kosten: ohne Vorrat gesperrt, mit Vorrat verbraucht
+	var wal_opt: Dictionary = Encounters.option(Encounters.Id.WAL, 1)
+	check(Encounters.available(v, wal_opt), "Vorräte: Harpune an Bord, die Walkarte ist offen")
+	v.supplies["harpune"] = 0
+	check(not Encounters.available(v, wal_opt), "Vorräte: ohne Harpune ist die Walkarte gesperrt")
+	v.supplies["harpune"] = 1
+	v._enc_pending = Encounters.Id.WAL
+	v._start_encounter()
+	v.decide_encounter(1)
+	check(v.supply("harpune") == 0, "Vorräte: die Harpune wird beim Wurf verbraucht")
+	v._steps.clear()
+	# Speichern und Laden
+	v.supplies = {"verband": 2, "harpune": 1}
+	(v.crew[0] as CrewMember).fokus = 1
+	var dd := JSON.parse_string(JSON.stringify(v.to_dict())) as Dictionary
+	var v2 := Voyage.new()
+	root.add_child(v2)
+	v2.resume(dd)
+	check(v2.supply("verband") == 2 and v2.supply("harpune") == 1 and v2.supply("teer") == 0 and (v2.crew[0] as CrewMember).fokus == 1, "Vorräte und Fokus überstehen Speichern und Laden")
+	v2.queue_free()
+	# Fokus: Kampfprobe +15 Punkte (höchstens 95 %), Würfelprobe zwei Würfe; kostet einen Punkt und Verzweiflung
+	var opt_f: Dictionary = Encounters.option(Encounters.Id.UNGEHEUER, 0)
+	var c0 := Encounters.chance(v, opt_f)
+	var c1 := Encounters.chance(v, opt_f, true)
+	check(is_equal_approx(c1, minf(c0 + Voyage.FOCUS_BONUS, 0.95)) or c1 == c0, "Fokus: Aussicht %d %% → %d %%" % [roundi(c0 * 100.0), roundi(c1 * 100.0)])
+	check(Voyage.focus_applies(opt_f) and not Voyage.focus_applies(Encounters.option(Encounters.Id.TOTENFLOSS, 0)) and not Voyage.focus_applies(Encounters.option(Encounters.Id.TREIBEIS, 0)), "Fokus: greift bei Proben, nicht bei Deckkämpfen und sicheren Karten")
+	var bad := 0
+	var bad_f := 0
+	var sw: Dictionary = Encounters.option(Encounters.Id.STRUDEL, 2)
+	seed(3)
+	for k in 2000:
+		if Encounters.pick(v, sw) != (sw["outcomes"] as Array)[0]:
+			bad += 1
+		if Encounters.pick(v, sw, true) != (sw["outcomes"] as Array)[0]:
+			bad_f += 1
+	check(bad > 850 and bad < 1150 and bad_f > 380 and bad_f < 620, "Fokus: zweiter Wurf halbiert das Pech (ohne %d, mit %d von 2000)" % [bad, bad_f])
+	for m2 in v.crew:
+		m2.fokus = Voyage.FOCUS_MAX
+		m2.stress = 0.0
+	var total0 := v.focus_total()
+	v._enc_pending = Encounters.Id.STRUDEL
+	v._start_encounter()
+	v.toggle_focus()
+	check(v.focus_armed, "Fokus: in der Begegnung angesagt")
+	v.decide_encounter(2)
+	var stressed := 0
+	for m3 in v.crew:
+		if m3.fokus == Voyage.FOCUS_MAX - 1 and m3.stress > 0.0:
+			stressed += 1
+	check(v.focus_total() == total0 - 1 and not v.focus_armed and stressed == 1, "Fokus: ein Punkt verbraucht, Verzweiflung +%d für den, der sich sammelt" % roundi(Voyage.FOCUS_STRESS))
+	v._steps.clear()
+	v._complete_stage()
+	check(v.focus_total() == Voyage.FOCUS_MAX * v.aboard_count(), "Fokus: mit der neuen Etappe wieder voll")
+	v.queue_free()
+
+
 func _test_route_events() -> void:
 	# Daten: jede Art hat Hinweis, Gewicht 0 auf Knoten, Skalden-Text, die letzte Option kostet nichts
 	var data_ok := true
@@ -2579,14 +2667,14 @@ func _test_route_events() -> void:
 			lore_missing.append(String(def["intro"]))
 		var opts: Array = def["options"]
 		var last: Dictionary = opts[opts.size() - 1]
-		if (last.get("cost", {}) as Dictionary).size() > 0 or last.has("formation") or opts.size() > 3:
+		if (last.get("cost", {}) as Dictionary).size() > 0 or last.has("formation") or opts.size() > 4:
 			data_ok = false
 		for o in opts:
 			for out in (o as Dictionary).get("outcomes", []):
 				var lk := String((out as Dictionary).get("lore", ""))
 				if lk != "" and not Skalde.LINES.has(lk):
 					lore_missing.append(lk)
-	check(data_ok and Encounters.HINTS.size() == Encounters.DATA.size(), "Streckenereignisse: %d Arten, nie auf Knoten, höchstens drei Karten, die letzte kostet nichts" % (Encounters.DATA.size() - Encounters.ROUTE_FIRST))
+	check(data_ok and Encounters.HINTS.size() == Encounters.DATA.size(), "Streckenereignisse: %d Arten, nie auf Knoten, höchstens vier Karten, die letzte kostet nichts" % (Encounters.DATA.size() - Encounters.ROUTE_FIRST))
 	check(lore_missing.is_empty(), "Streckenereignisse: der Skalde hat zu jedem Ausgang etwas zu sagen (%s)" % ", ".join(lore_missing))
 	var snd_ok := Encounters.ROUTE_SND.size() == Encounters.DATA.size() - Encounters.ROUTE_FIRST
 	for sid in Encounters.ROUTE_SND:

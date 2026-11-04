@@ -1,6 +1,8 @@
 """Erzeugt assets/route_props.png: Bilder der Ereignisse auf der Strecke (reines Python, nutzt tools/make_enemies.py).
 
-Atlas: 4 Spalten x 3 Zeilen Zellen zu 128x96 wie die Kulissen der Begegnungen; Anker (Wasserlinie, Mitte) bei (64, 72).
+Atlas: 4 Spalten x 6 Zeilen Zellen zu 128x96 wie die Kulissen der Begegnungen; Anker (Wasserlinie, Mitte) bei (64, 72).
+Zeilen 0..2 sind Bild 0, Zeilen 3..5 Bild 1 (dieselbe Zelle drei Zeilen tiefer): Wal, Irrlichter, Strudel und Fischschwarm bewegen
+sich zwischen den beiden Bildern, die übrigen sind zweimal gleich (das Wiegen auf den Wellen macht das Spiel).
 Die Dinge treiben links neben dem eigenen Heck (rechts liegt die Seekarte), die hintere Wellenschicht deckt ihren Teil unter Wasser.
 Reihenfolge = Encounters.Id ab ROUTE_FIRST:
     0 Treibgut  1 Schiffbrüchiger  2 Treibeis  3 Enterhaken  4 Flaschenpost
@@ -161,33 +163,42 @@ def make_flaschenpost():
     return img
 
 
-def make_wal():
+def make_wal(frame=0):
     img = Img(CW, CH)
     back, back_l, back_d = hx("#3e4a58"), hx("#5f6f80"), hx("#252c36")
+    rise = 3 if frame == 1 else 0  # Bild 1: der Rücken hebt sich, die Fontäne steigt höher
     pts = []
     for x in range(14, 112, 2):
         u = (x - 14) / 98.0
-        pts.append((x, WL - round(16 * math.sin(u * math.pi) ** 0.8)))
+        pts.append((x, WL - round((16 + rise) * math.sin(u * math.pi) ** 0.8)))
     pts += [(112, WL + 2), (14, WL + 2)]
     shade_poly(img, pts, back_l, back, back_d)
-    poly(img, [(70, WL - 14), (78, WL - 24), (82, WL - 13)], back)  # Finne
+    poly(img, [(70, WL - 14 - rise), (78, WL - 24 - rise), (82, WL - 13 - rise)], back)  # Finne
     for (sx, sy) in ((40, WL - 9), (46, WL - 11), (58, WL - 12), (92, WL - 8)):
-        img.set(sx, sy, hx("#b8b2a0"))  # Seepocken
+        img.set(sx, sy - rise, hx("#b8b2a0"))  # Seepocken
     img.outline(OUT)
-    # Fontäne über dem Atemloch
-    for k in range(9):
-        x = 30 + round(5 * math.sin(k * 1.3))
-        y = WL - 18 - k * 3
+    # Fontäne über dem Atemloch (Bild 1: höher und oben aufgefächert)
+    for k in range(9 + 3 * frame):
+        x = 30 + round(5 * math.sin(k * 1.3 + frame))
+        y = WL - 18 - rise - k * 3
         img.set(x, y, FOAM)
         img.set(x - 2 + k % 3, y - 1, WATER_L)
+    if frame == 1:
+        for k in range(-3, 4):
+            img.set(30 + k * 2, WL - 18 - rise - 36 + abs(k), FOAM)
     ripples(img, 8, 118, WL + 2, FOAM)
     return img
 
 
-def make_irrlichter():
+def make_irrlichter(frame=0):
     img = Img(CW, CH)
-    for (cx, cy) in ((34, WL - 26), (58, WL - 40), (78, WL - 22), (98, WL - 34)):
-        E.glow(img, cx, cy, hx("#ffffff"), hx("#bfe8ff"), hx("#5d8fc2"), r=6)
+    spots = ((34, WL - 26), (58, WL - 40), (78, WL - 22), (98, WL - 34))
+    for i, (cx, cy) in enumerate(spots):
+        if frame == 1:  # Bild 1: sie tanzen ein Stück und flackern (zwei werden kleiner)
+            cx += (2, -2, 1, -1)[i]
+            cy += (-2, 1, -3, 2)[i]
+        r = 6 if (frame == 0 or i % 2 == 0) else 4
+        E.glow(img, cx, cy, hx("#ffffff"), hx("#bfe8ff"), hx("#5d8fc2"), r=r)
         for k in range(1, 4):  # kleiner Schweif
             if (cx + k) % 2 == 0:
                 img.set(cx + k * 2, cy + k, hx("#5d8fc2"))
@@ -198,7 +209,7 @@ def make_irrlichter():
     return img
 
 
-def make_strudel():
+def make_strudel(frame=0):
     img = Img(CW, CH)
     dark, mid, foam = hx("#4f7c96"), hx("#8fb4c8"), FOAM
     cx, cy = 64, WL + 1
@@ -209,7 +220,7 @@ def make_strudel():
         for a in range(0, 360, 3):
             if (a // 30 + ring) % 3 == 0:
                 continue  # Lücken: eine Spirale statt Ringe
-            t = math.radians(a + ring * 25)
+            t = math.radians(a + ring * 25 + frame * 15)  # Bild 1: eine Achteldrehung weiter
             x = cx + round(rx * math.cos(t))
             y = cy + round(ry * math.sin(t))
             img.set(x, y, col)
@@ -241,16 +252,17 @@ def make_totenfloss():
     return img
 
 
-def make_fischschwarm():
+def make_fischschwarm(frame=0):
     img = Img(CW, CH)
     silver, silver_d = hx("#cfd8de"), hx("#7f8f9a")
-    for (x, y, d) in ((36, WL - 10, 1), (62, WL - 16, -1), (88, WL - 8, 1)):
+    fish = ((36, WL - 10, 1), (62, WL - 16, -1), (88, WL - 8, 1)) if frame == 0 else ((42, WL - 15, 1), (56, WL - 9, -1), (94, WL - 14, 1))
+    for (x, y, d) in fish:
         img.rect(x - 3, y - 1, x + 3, y + 1, silver)
         img.rect(x - 3, y + 1, x + 3, y + 1, silver_d)
         img.set(x + 4 * d, y - 2, silver_d)
         img.set(x + 4 * d, y + 2, silver_d)
         img.set(x - 2 * d, y - 1, hx("#0b0a0e"))  # Auge
-    for (gx, gy) in ((30, 24), (54, 16), (96, 22)):
+    for (gx, gy) in (((30, 24), (54, 16), (96, 22)) if frame == 0 else ((34, 21), (50, 18), (92, 25))):
         img.line(gx - 4, gy - 2, gx, gy, hx("#e6e0cc"), 1)
         img.line(gx, gy, gx + 4, gy - 2, hx("#e6e0cc"), 1)
     img.outline(OUT)
@@ -265,11 +277,16 @@ MAKERS = [make_treibgut, make_schiffbruechiger, make_treibeis, make_enterhaken_r
           make_wal, make_irrlichter, make_strudel, make_totenfloss, make_fischschwarm]
 
 
+ANIMATED = {make_wal, make_irrlichter, make_strudel, make_fischschwarm}
+ROWS = 3  # Zeilen je Bild
+
+
 def build():
-    rows = 3
-    atlas = Img(CW * COLS, CH * rows)
-    for i, fn in enumerate(MAKERS):
-        atlas.blit(fn(), (i % COLS) * CW, (i // COLS) * CH)
+    atlas = Img(CW * COLS, CH * ROWS * 2)
+    for frame in (0, 1):
+        for i, fn in enumerate(MAKERS):
+            img = fn(frame) if (frame == 1 and fn in ANIMATED) else fn()
+            atlas.blit(img, (i % COLS) * CW, (i // COLS + frame * ROWS) * CH)
     return atlas
 
 

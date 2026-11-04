@@ -229,6 +229,28 @@ static func storm(voy: Voyage) -> Dictionary:
 	return _tip("Sturmfront", lines)
 
 
+## Ein Vorrat: was er tut, wie viele an Bord sind, ob er jetzt geht.
+static func supply(voy: Voyage, key: String) -> Dictionary:
+	var d: Dictionary = Supplies.DATA[key]
+	var lines: Array = [_l(String(d["desc"]))]
+	lines.append(_l("An Bord: %d von höchstens %d. Beim Krämer im Hafen: %d Beute." % [voy.supply(key), Supplies.cap(key), Supplies.price(voy, key)], GOLD))
+	if voy.phase == Voyage.Phase.PLAN and bool(d["sea"]):
+		if voy.can_use_supply(key):
+			lines.append(_l("Klick: jetzt einsetzen.", GREEN))
+		elif voy.supply(key) > 0:
+			lines.append(_l("Gerade ohne Wirkung (alle frisch, ruhig oder der Rumpf heil).", DIM))
+	return _tip(String(d["name"]), lines)
+
+
+## Fokus: wie viele Punkte, was sie tun, was sie kosten.
+static func focus(voy: Voyage) -> Dictionary:
+	return _tip("Fokus", [
+		_l("Jeder Mann hat je Etappe %d Fokuspunkte; zusammen %d. Sie stehen als violette Rauten auf den Karten der Männer." % [Voyage.FOCUS_MAX, voy.focus_total()]),
+		_l("In einer Begegnung mit F (oder dem Knopf) ansagen: bei Kampfproben +%d %% Aussicht, sonst wird zweimal gewürfelt und der bessere Ausgang zählt." % roundi(Voyage.FOCUS_BONUS * 100.0), GOLD),
+		_l("Es sammelt sich der Mann mit dem meisten Fokus; das kostet ihn Verzweiflung +%d. Mit jeder neuen Etappe ist der Fokus wieder voll." % roundi(Voyage.FOCUS_STRESS), DIM),
+	])
+
+
 static func level(voy: Voyage) -> Dictionary:
 	return _tip("Stufe %d" % voy.level, [
 		_l("Erfahrung: %d von %d bis zur nächsten Stufe." % [voy.xp, voy.xp_needed()]),
@@ -323,9 +345,13 @@ static func option(voy: Voyage, enc: int, opt: Dictionary) -> Dictionary:
 			cs.append("Beute −%d" % roundi(float(cost["loot"])))
 		if cost.has("proviant"):
 			cs.append("Proviant −%d" % int(cost["proviant"]))
+		for sk in Supplies.cost_keys(cost):
+			cs.append("%s −%d (an Bord %d)" % [Supplies.name_of(sk), int(cost[sk]), voy.supply(sk)])
 		lines.append(_l("Kosten: " + ", ".join(PackedStringArray(cs)), GOLD))
 	if opt.has("fight"):
-		lines.append(_l("Aussicht %s aus der Kampfstärke deiner Besatzung (Männer mit Kraft, Waffen und Eigenschaften)." % _pct(Encounters.chance(voy, opt)), GOLD))
+		lines.append(_l("Aussicht %s aus der Kampfstärke deiner Besatzung (Männer mit Kraft, Waffen und Eigenschaften)." % _pct(Encounters.chance(voy, opt, voy.focus_armed and Voyage.focus_applies(opt))), GOLD))
+	if voy.focus_armed and Voyage.focus_applies(opt):
+		lines.append(_l("Fokus angesagt: " + ("+%d %% Aussicht." % roundi(Voyage.FOCUS_BONUS * 100.0) if opt.has("fight") else "zwei Würfe, der bessere zählt."), VIOLET))
 	var outs: Array = opt.get("outcomes", [])
 	var seen := {}
 	for k in outs.size():
@@ -520,11 +546,17 @@ static func fighter(c: Combat, f: Combat.Fighter, armed_skill: String) -> Dictio
 	if f.buff > 0:
 		st.append("Kriegslied")
 	if f.held_by != null and not f.held_by.gone:
-		st.append("im Griff (G)")
+		st.append("im Griff")
 	if f.blind > 0:
-		st.append("geblendet (T): Treffer −20 %% für %d Runden" % f.blind)
+		st.append("geblendet: Treffer −20 %% für %d Runden" % f.blind)
 	if f.charge:
-		st.append("spannt sich (Z)")
+		st.append("spannt sich")
+	if f.taunt > 0:
+		st.append("fordert heraus: die Gegner zielen %d Runden fast nur auf ihn" % f.taunt)
+	if f.panic > 0:
+		st.append("in Panik: setzt %d Züge aus" % f.panic)
+	if not f.loaded:
+		st.append("Muskete leer: erst nachladen")
 	if not st.is_empty():
 		lines.append(_l("Zustand: " + ", ".join(PackedStringArray(st)), GOLD))
 	if f.held_by != null and not f.held_by.gone:

@@ -147,6 +147,8 @@ var loki_round := 0
 var loki_pot := 0  # Gewinn, über den noch entschieden wird (kassieren oder Risiko)
 var loki_ladder := 0
 var loki_reward: Dictionary = {}
+var supplies := {}  # Vorräte (Supplies.ORDER): Schlüssel -> Anzahl; gekauft beim Krämer im Hafen
+var focus_armed := false  # Fokus für die nächste Probe angesagt (Taste F oder Knopf in der Begegnung)
 var pfand := 0  # Pfandflaschen (legendärer Schlüsselgegenstand, siehe Items.PFAND_NAME): je eine für ein sicheres Freispiel bei Adlersson
 var _harbor_spins := 0
 var fallen_names: Array[String] = []  # Namen aller Gefallenen, auch wenn ihr Platz neu besetzt wurde
@@ -867,6 +869,116 @@ func buy_repair() -> bool:
 
 func powder_price() -> int:
 	return roundi(15.0 * price_mul())
+
+
+# --- Vorräte und Fokus ----------------------------------------------------------------------
+
+const FOCUS_MAX := 2  # Fokuspunkte je Mann und Etappe
+const FOCUS_BONUS := 0.15  # so viel bessere Aussicht bei Kampfproben
+const FOCUS_STRESS := 5.0  # Fokus kostet Nerven: Verzweiflung für den, der sich sammelt
+
+
+func supply(k: String) -> int:
+	return int(supplies.get(k, 0))
+
+
+func can_buy_supply(k: String) -> bool:
+	return shop_open and Supplies.has_key(k) and supply(k) < Supplies.cap(k) and loot >= float(Supplies.price(self, k))
+
+
+## Beim Krämer im Hafen kaufen.
+func buy_supply(k: String) -> bool:
+	if not can_buy_supply(k):
+		return false
+	var pr := Supplies.price(self, k)
+	loot -= float(pr)
+	supplies[k] = supply(k) + 1
+	Sfx.play("coin")
+	_fact("Krämer: %s gekauft (Beute −%d)." % [Supplies.name_of(k), pr], Kind.GOOD)
+	return true
+
+
+## Lässt sich das Gut jetzt auf See einsetzen (in der Planung, mit Wirkung)?
+func can_use_supply(k: String) -> bool:
+	if phase != Phase.PLAN or ended or supply(k) <= 0 or not bool((Supplies.DATA.get(k, {}) as Dictionary).get("sea", false)):
+		return false
+	match k:
+		"verband":
+			return _weakest_aboard() != null and _weakest_aboard().kraft < 99.5
+		"schnaps":
+			for m in crew:
+				if m.state == CrewMember.State.ABOARD and m.stress > 0.5:
+					return true
+			return false
+		"teer":
+			return hull < hull_max() - 0.5
+	return false
+
+
+func _weakest_aboard() -> CrewMember:
+	var best: CrewMember = null
+	for m in crew:
+		if m.state == CrewMember.State.ABOARD and (best == null or m.kraft < best.kraft):
+			best = m
+	return best
+
+
+## Ein Gut auf See einsetzen: Verband, Schnaps oder Teer.
+func use_supply(k: String) -> bool:
+	if not can_use_supply(k):
+		return false
+	supplies[k] = supply(k) - 1
+	match k:
+		"verband":
+			var m := _weakest_aboard()
+			m.kraft = minf(m.kraft + 30.0, 100.0)
+			Sfx.play("heal")
+			_fact("Verband: %s Kraft +30." % m.display_name, Kind.GOOD)
+		"schnaps":
+			for m2 in crew:
+				if m2.state == CrewMember.State.ABOARD:
+					m2.stress = maxf(m2.stress - 8.0, 0.0)
+			Sfx.play("mug")
+			_fact("Schnaps für alle: Verzweiflung −8.", Kind.GOOD)
+		"teer":
+			hull = minf(hull + 15.0, hull_max())
+			Sfx.play("hammer")
+			_fact("Teer in die Fugen: Rumpf +15.", Kind.GOOD)
+	_mods_changed()
+	return true
+
+
+func focus_total() -> int:
+	var n := 0
+	for m in crew:
+		if m.state == CrewMember.State.ABOARD:
+			n += m.fokus
+	return n
+
+
+## Greift Fokus bei dieser Option? Nur bei echten Proben (Aussicht oder mehrere Ausgänge), nicht bei Deckkämpfen und Käufen.
+static func focus_applies(opt: Dictionary) -> bool:
+	if opt.has("formation") or opt.has("tactic") or opt.has("slot") or bool(opt.get("shop", false)) or bool(opt.get("crew", false)):
+		return false
+	return opt.has("fight") or (opt.get("outcomes", []) as Array).size() >= 2
+
+
+func toggle_focus() -> void:
+	if phase != Phase.ENCOUNTER or Encounters.is_harbor(encounter) or Encounters.is_battle(encounter):
+		focus_armed = false
+		return
+	focus_armed = not focus_armed and focus_total() > 0
+
+
+## Wer sich sammelt: der Mann mit dem meisten Fokus, bei Gleichstand der Ruhigste.
+func _focus_man() -> CrewMember:
+	var best: CrewMember = null
+	for m in crew:
+		if m.state != CrewMember.State.ABOARD or m.fokus <= 0:
+			continue
+		if best == null or m.fokus > best.fokus or (m.fokus == best.fokus and m.stress < best.stress):
+			best = m
+	return best
 
 
 ## Vier Fässer Schießpulver für Beute (nur mit Kanonen sinnvoll).
@@ -1851,6 +1963,8 @@ func _complete_stage() -> void:
 	pos = 0
 	leg = 0.0
 	front = -float(DIFFICULTY[difficulty]["gap"])
+	for fm in crew + reserve:
+		fm.fokus = FOCUS_MAX
 	route = -1
 	shop = []
 	shop_open = false
@@ -1970,8 +2084,20 @@ func decide_encounter(i: int) -> void:
 	if cost.has("proviant"):
 		proviant = maxi(proviant - int(cost["proviant"]), 0)
 		_fact("Bezahlt: Proviant −%d (noch %d)" % [int(cost["proviant"]), proviant], Kind.FACT)
+	for sk in Supplies.cost_keys(cost):
+		supplies[sk] = maxi(supply(sk) - int(cost[sk]), 0)
+		_fact("Eingesetzt: %s (noch %d)" % [Supplies.name_of(sk), supply(sk)], Kind.FACT)
 	_fact("%s: %s" % [Encounters.DATA[encounter]["name"], opt["label"]], Kind.FACT)
-	var outcome := Encounters.pick(self, opt)
+	var focused := false
+	if focus_armed and focus_applies(opt):
+		var fm := _focus_man()
+		if fm != null:
+			fm.fokus -= 1
+			_add_stress(fm, FOCUS_STRESS)
+			focused = true
+			_fact("Fokus: %s sammelt sich (Verzweiflung +%d)." % [fm.display_name, roundi(FOCUS_STRESS)], Kind.FACT)
+	focus_armed = false
+	var outcome := Encounters.pick(self, opt, focused)
 	_steps = [{"delay": 1.2, "fn": _apply_outcome.bind(outcome)}, {"delay": 1.4, "fn": _after_encounter}]
 	_step_left = 1.2
 
@@ -2853,7 +2979,7 @@ func to_dict() -> Dictionary:
 		"fallen_names": fallen_names, "start_names": start_names, "death_causes": death_causes,
 		"saga": saga_events, "storm_noted": _storm_noted, "crew": crew_data, "bonds": bonds, "relief": relief,
 		"reserve": reserve_data, "next_id": _next_id, "food_acc": _food_acc, "camps": camps_used,
-		"difficulty": difficulty, "front": front,
+		"difficulty": difficulty, "front": front, "supplies": supplies,
 		"history": history.slice(maxi(history.size() - 20, 0)),
 	}
 
@@ -2889,6 +3015,13 @@ func resume(d: Dictionary) -> void:
 	stage = int(d.get("stage", 1))
 	difficulty = clampi(int(d.get("difficulty", 1)), 0, DIFFICULTY.size() - 1)
 	front = float(d.get("front", -float(DIFFICULTY[difficulty]["gap"])))
+	supplies = {}
+	focus_armed = false
+	var sd: Variant = d.get("supplies", {})
+	if sd is Dictionary:
+		for sk in (sd as Dictionary):
+			if Supplies.has_key(String(sk)) and int(sd[sk]) > 0:
+				supplies[String(sk)] = clampi(int(sd[sk]), 0, Supplies.cap(String(sk)))
 	_mods_changed()
 	relief = bool(d.get("relief", true))
 	theme = clampi(int(d.get("theme", 0)), 0, THEMES.size() - 1)
@@ -3495,6 +3628,7 @@ func _man_dict(m: CrewMember) -> Dictionary:
 		"id": m.id, "name": m.display_name, "look": m.look, "state": int(m.state), "slot": m.slot,
 		"kraft": m.kraft, "stress": m.stress, "afflicted": m.afflicted, "affliction": m.affliction,
 		"traits": m.traits, "role": m.role, "loadout": m.loadout, "weapon": m.weapon_lvl, "armor": m.armor_lvl, "slv": m.skill_lvl, "gear": m.gear,
+		"fokus": m.fokus,
 	}
 
 
@@ -3509,6 +3643,7 @@ func _man_from(cd: Dictionary) -> CrewMember:
 	m.stress = float(cd["stress"])
 	m.afflicted = bool(cd["afflicted"])
 	m.affliction = int(cd["affliction"])
+	m.fokus = clampi(int(cd.get("fokus", FOCUS_MAX)), 0, FOCUS_MAX)
 	m.traits = Traits.typed(cd["traits"])
 	m.role = int(cd.get("role", Roles.random_role()))
 	m.loadout = Roles.valid_loadout(m.role, cd.get("loadout", []))

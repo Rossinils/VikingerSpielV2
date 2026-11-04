@@ -78,12 +78,13 @@ func _run() -> void:
 	check(v.phase == Voyage.Phase.ENCOUNTER and hud.kb_card == -1, "Begegnung: noch keine Karte gewählt")
 	key(KEY_RIGHT)
 	check(hud.kb_card == 0, "→ wählt die erste Karte")
-	key(KEY_RIGHT)
-	key(KEY_RIGHT)
-	key(KEY_RIGHT)
-	check(hud.kb_card == 2, "→ bis zur letzten Karte, dort bleibt es")
-	key(KEY_LEFT)
-	check(hud.kb_card == 1, "← eine zurück")
+	var n_opts := (Encounters.DATA[Encounters.Id.TREIBEIS]["options"] as Array).size()
+	for k in n_opts + 1:
+		key(KEY_RIGHT)
+	check(hud.kb_card == n_opts - 1, "→ bis zur letzten Karte, dort bleibt es")
+	for k in n_opts - 2:
+		key(KEY_LEFT)
+	check(hud.kb_card == 1, "← zurück bis zur zweiten Karte")
 	var proviant_before := v.proviant
 	key(KEY_ENTER)
 	check(v.phase == Voyage.Phase.RESOLVE and v.proviant == proviant_before - 1, "Enter nimmt die gewählte Karte (Umfahren kostet Proviant 1)")
