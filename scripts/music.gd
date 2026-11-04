@@ -1,19 +1,26 @@
 class_name MusicDirector
 extends Node
 
-## Wählt je nach Lage das passende Stück und überblendet sanft.
-##   Hauptmenü, Ende einer Fahrt     Lieder mit Gesang (Neue Ufer, neues Land / Halt aus, mein Freund)
-##   Fahrt: ruhige See               Morgenwind (komponiert, ohne Gesang)
-##   Fahrt: Seegang 3                Halt aus, mein Freund (ohne Gesang)
-##   Fahrt: Seegang 4-5              Sturmwache (komponiert)
-##   Seeschlacht                     Eisen und Salz (komponiert)
-##   Hafen                           Taverne am Kai (komponiert)
-##   Mann über Bord                  Halt aus, mein Freund (ohne Gesang)
-## Während der Fahrt läuft nie Gesang, damit er beim Lesen nicht stört. Die Stücke laufen in Endlosschleife und
-## setzen beim Zurückwechseln dort fort, wo sie unterbrochen wurden.
-## Lautstärke und Stummschaltung werden in user://settings.cfg gemerkt.
+## Wählt je nach Lage (Stimmung) das passende Stück und überblendet. Jede Stimmung hat eine Liste von Stücken:
+##   Hauptmenü                      Neue Ufer, neues Land / Langschiff durch die See (mit Gesang, abwechselnd)
+##   Ende: Ruhestand / Untergang    Neue Ufer, neues Land / Halt aus, mein Freund (mit Gesang)
+##   ruhige See                     Morgenwind, Ruderlied (wechseln nach einigen Minuten)
+##   Nebelmeer, Totensee (ruhig)    Nebelfahrt, Morgenwind
+##   Seegang 3                      Halt aus (ohne Gesang), Ruderlied
+##   Seegang 4-5 oder Sturmfront    Sturmwache
+##   Spuk (Draugr, Irrlichter, Totenfloß, Wrack, Schiffbrüchiger)   Nebelfahrt
+##   Deckkampf                      Schildwall, Blutige Planken, Eisen und Salz (jeder Kampf das nächste)
+##   Kraken (Begegnung und Kampf)   Aus der Tiefe
+##   Seeschlacht                    Eisen und Salz, Schildwall
+##   Hafen / Lager                  Taverne am Kai / Lagerfeuer
+##   Mann über Bord                 Halt aus (ohne Gesang)
+## Fehlt ein Stück (Musik/ liegt nicht im Repository), springt das nächste der Liste oder der Ersatzliste ein. Während der
+## Fahrt läuft nie Gesang. Zwischen zwei Stimmungen der See wird erst nach MIN_HOLD gewechselt, sonst sofort.
+## Die Stücke laufen in Endlosschleife (auch wenn der Import es nicht so eingestellt hat) und setzen beim Zurückwechseln dort
+## fort, wo sie unterbrochen wurden. Lautstärke und Stummschaltung werden in user://settings.cfg gemerkt.
 
-enum Track { UFER, LANGSCHIFF, HALT_AUS, HALT_AUS_INSTR, MORGENWIND, STURMWACHE, EISEN, TAVERNE }
+enum Track { UFER, LANGSCHIFF, HALT_AUS, HALT_AUS_INSTR, MORGENWIND, STURMWACHE, EISEN, TAVERNE,
+	SCHILDWALL, PLANKEN, TIEFE, NEBEL, RUDER, LAGER }
 
 ## "gain" gleicht die Lautstärke der Stücke aneinander an (in dB).
 const TRACKS := {
@@ -25,8 +32,35 @@ const TRACKS := {
 	Track.STURMWACHE: {"title": "Sturmwache", "path": "res://Musik/Hintergrund/sturmwache.wav", "vocal": false, "gain": -7.0},
 	Track.EISEN: {"title": "Eisen und Salz", "path": "res://Musik/Hintergrund/eisen_und_salz.wav", "vocal": false, "gain": -6.0},
 	Track.TAVERNE: {"title": "Taverne am Kai", "path": "res://Musik/Hintergrund/taverne.wav", "vocal": false, "gain": -4.0},
+	Track.SCHILDWALL: {"title": "Schildwall", "path": "res://Musik/Hintergrund/schildwall.wav", "vocal": false, "gain": -5.0},
+	Track.PLANKEN: {"title": "Blutige Planken", "path": "res://Musik/Hintergrund/blutige_planken.wav", "vocal": false, "gain": -5.0},
+	Track.TIEFE: {"title": "Aus der Tiefe", "path": "res://Musik/Hintergrund/aus_der_tiefe.wav", "vocal": false, "gain": -5.0},
+	Track.NEBEL: {"title": "Nebelfahrt", "path": "res://Musik/Hintergrund/nebelfahrt.wav", "vocal": false, "gain": -8.0},
+	Track.RUDER: {"title": "Ruderlied", "path": "res://Musik/Hintergrund/ruderlied.wav", "vocal": false, "gain": -6.0},
+	Track.LAGER: {"title": "Lagerfeuer", "path": "res://Musik/Hintergrund/lagerfeuer.wav", "vocal": false, "gain": -6.0},
 }
-const MIN_HOLD := 40.0  # Sekunden, bevor die Stimmung (nicht aber ein Ereignis) das Lied wechselt
+## Stimmung -> [Stücke, Ersatz]. Die Ersatzliste gilt nur, wenn kein Stück der ersten Liste vorhanden ist.
+const MOODS := {
+	"menu": [[Track.UFER, Track.LANGSCHIFF], [Track.MORGENWIND]],
+	"win": [[Track.UFER], [Track.RUDER, Track.MORGENWIND]],
+	"lose": [[Track.HALT_AUS], [Track.NEBEL, Track.MORGENWIND]],
+	"rescue": [[Track.HALT_AUS_INSTR], [Track.STURMWACHE]],
+	"calm": [[Track.MORGENWIND, Track.RUDER], []],
+	"fog": [[Track.NEBEL, Track.MORGENWIND], []],
+	"rough": [[Track.HALT_AUS_INSTR, Track.RUDER], [Track.STURMWACHE, Track.MORGENWIND]],
+	"storm": [[Track.STURMWACHE], [Track.EISEN]],
+	"spook": [[Track.NEBEL], [Track.STURMWACHE]],
+	"fight": [[Track.SCHILDWALL, Track.PLANKEN, Track.EISEN], [Track.STURMWACHE]],
+	"boss": [[Track.TIEFE], [Track.EISEN, Track.STURMWACHE]],
+	"battle": [[Track.EISEN, Track.SCHILDWALL], [Track.STURMWACHE]],
+	"harbor": [[Track.TAVERNE], [Track.MORGENWIND]],
+	"camp": [[Track.LAGER], [Track.MORGENWIND]],
+}
+const SEA_MOODS := ["calm", "fog", "rough", "storm"]  # zwischen diesen erst nach MIN_HOLD wechseln
+const FRESH_EACH_TIME := ["fight", "battle", "menu"]  # jedes Mal das nächste Stück der Liste
+const SPOOKY := [Encounters.Id.DRAUGR, Encounters.Id.WRACK, Encounters.Id.IRRLICHTER, Encounters.Id.TOTENFLOSS, Encounters.Id.SCHIFFBRUECHIGER]
+const MIN_HOLD := 40.0  # Sekunden, bevor die Stimmung der See das Stück wechselt
+const ROTATE := 200.0  # so lange läuft ein Stück, bevor die gleiche Stimmung zum nächsten ihrer Liste wechselt
 const FADE := 3.0
 const SILENT_DB := -60.0
 const SETTINGS := "user://settings.cfg"
@@ -44,12 +78,13 @@ var _a: AudioStreamPlayer
 var _b: AudioStreamPlayer
 var _active: AudioStreamPlayer = null
 var _current := -1
+var _mood := ""
 var _since := 0.0
 var _streams: Dictionary = {}
 var _missing: Dictionary = {}  # Stücke ohne Datei (Musik/ liegt nicht im Repository): bleiben still, ohne Fehlermeldung
 var _positions: Dictionary = {}
+var _pick: Dictionary = {}  # Stimmung -> Zähler (welches Stück der Liste gerade dran ist)
 var _rescue_hold := false
-var _last_menu := false
 var _tween: Tween = null
 
 
@@ -75,40 +110,88 @@ func _process(delta: float) -> void:
 	title_time = maxf(title_time - delta, 0.0)
 	if voy == null:
 		return
-	var want := _desired()
-	var urgent := voy.ended or _rescue_hold or menu != _last_menu or voy.encounter >= 0
-	if _current == Track.EISEN or _current == Track.TAVERNE:
-		urgent = true  # nach Schlacht oder Hafenbesuch gleich zurück auf See
-	_last_menu = menu
-	if want != _current and (_current < 0 or urgent or _since >= MIN_HOLD):
-		_switch(want, 1.5 if urgent else FADE)
+	var mood := mood_now()
+	if mood == "":
+		return  # eine gewöhnliche Begegnung: das laufende Stück bleibt
+	var entering := mood != _mood
+	if entering and FRESH_EACH_TIME.has(mood):
+		_pick[mood] = int(_pick.get(mood, -1)) + 1
+	elif not entering and _since >= ROTATE and _available(MOODS[mood][0]).size() > 1:
+		_pick[mood] = int(_pick.get(mood, 0)) + 1  # lange genug gehört: das nächste Stück dieser Stimmung
+		_since = 0.0
+	var want := _track_for(mood)
+	if want < 0:
+		return
+	var calm_change := SEA_MOODS.has(mood) and SEA_MOODS.has(_mood)
+	if want != _current and (_current < 0 or not calm_change or not entering or _since >= MIN_HOLD):
+		_switch(want, FADE if (calm_change or not entering) else (1.0 if mood in ["fight", "boss", "battle"] else 1.5))
+		_mood = mood
+	elif want == _current:
+		_mood = mood
 
 
-## Lieder mit Gesang nur im Hauptmenü und nach der Fahrt, unterwegs nur Stücke ohne Gesang.
-func _desired() -> int:
+## Die Stimmung der Lage; "" heißt: das laufende Stück bleibt (gewöhnliche Begegnung unterwegs).
+func mood_now() -> String:
 	if menu:
-		return Track.UFER
+		return "menu"
 	if voy.ended:
-		return Track.UFER if voy.victory else Track.HALT_AUS
+		return "win" if voy.victory else "lose"
 	if voy.phase == Voyage.Phase.RESCUE:
 		_rescue_hold = true
 	elif voy.phase != Voyage.Phase.RESOLVE:  # Seilwurf läuft noch; danach gilt wieder die Lage (Schlacht, Hafen ...)
 		_rescue_hold = false
 	if _rescue_hold:
-		return Track.HALT_AUS_INSTR
+		return "rescue"
+	if voy.phase == Voyage.Phase.COMBAT:
+		var form := voy.combat.formation if voy.combat != null else String(voy.fight_prep.get("formation", ""))
+		return "boss" if form == "kraken" else "fight"
+	if voy.camping:
+		return "camp"
 	if voy.encounter >= 0:
+		if voy.encounter == Encounters.Id.KRAKEN:
+			return "boss"  # auch die Seeschlacht gegen den Kraken
 		if Encounters.is_battle(voy.encounter):
-			return Track.EISEN
+			return "battle"
 		if Encounters.is_harbor(voy.encounter):
-			return Track.TAVERNE
+			return "harbor"
+		if SPOOKY.has(voy.encounter):
+			return "spook"
 		if _current >= 0 and not bool(TRACKS[_current]["vocal"]):
-			return _current  # bei Begegnungen keine Unterbrechung
+			return ""  # bei Begegnungen keine Unterbrechung
 	var sea := voy.sea_view
-	if sea >= 4:
-		return Track.STURMWACHE
+	if sea >= 4 or voy.front >= voy.ship_at() - 0.001:
+		return "storm"
 	if sea == 3:
-		return Track.HALT_AUS_INSTR
-	return Track.MORGENWIND
+		return "rough"
+	if voy.theme == 1 or voy.theme == 4:  # Nebelmeer, Totensee
+		return "fog"
+	return "calm"
+
+
+## Das Stück, das jetzt laufen soll (für Tests: dasselbe, was _process wählt).
+func _desired() -> int:
+	var mood := mood_now()
+	if mood == "":
+		return _current
+	return _track_for(mood)
+
+
+func _available(list: Array) -> Array:
+	var out: Array = []
+	for t in list:
+		if not _missing.has(t):
+			out.append(t)
+	return out
+
+
+func _track_for(mood: String) -> int:
+	var lists: Array = MOODS[mood]
+	var have := _available(lists[0])
+	if have.is_empty():
+		have = _available(lists[1])
+	if have.is_empty():
+		return -1
+	return int(have[maxi(int(_pick.get(mood, 0)), 0) % have.size()])
 
 
 func _stream_for(track: int) -> AudioStream:
@@ -119,9 +202,21 @@ func _stream_for(track: int) -> AudioStream:
 	var path := String(TRACKS[track]["path"])
 	if ResourceLoader.load_threaded_get_status(path) == ResourceLoader.THREAD_LOAD_LOADED:
 		var res := ResourceLoader.load_threaded_get(path) as AudioStream
+		_make_loop(res)
 		_streams[track] = res
 		return res
 	return null  # lädt noch, der nächste Frame versucht es wieder
+
+
+## Endlosschleife erzwingen: die Hintergrundstücke kommen ohne Schleifenmarke aus make_music.py, und der Import stellt sie
+## nicht von selbst ein. Ohne das verstummt ein Stück nach seinem Ende.
+static func _make_loop(res: AudioStream) -> void:
+	var w := res as AudioStreamWAV
+	if w == null or w.loop_mode != AudioStreamWAV.LOOP_DISABLED:
+		return
+	w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	w.loop_begin = 0
+	w.loop_end = int(w.get_length() * float(w.mix_rate))
 
 
 func _switch(track: int, fade: float) -> void:

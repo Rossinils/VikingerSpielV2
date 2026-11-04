@@ -3,14 +3,13 @@
 # Läuft unter Linux/macOS/Git Bash. Voraussetzung: Godot 4.7.2 und die Exportvorlagen 4.7.2 (Windows x86_64):
 #   Linux: ~/.local/share/godot/export_templates/4.7.2.stable/windows_release_x86_64.exe (+ version.txt)
 #   Editor: Projekt -> Exportieren -> Exportvorlagen verwalten -> Herunterladen
-# Musik: die vier Hintergrundstücke ohne Gesang werden bei Bedarf erzeugt (tools/make_music.py). Die Lieder mit Gesang
+# Musik: die zehn Hintergrundstücke ohne Gesang werden bei Bedarf erzeugt (tools/make_music.py --missing). Die Lieder mit Gesang
 # kommen nur mit, wenn sie in Musik/ liegen (sie sind nicht im Repository): für die volle Fassung dort bauen, wo Musik/ liegt.
 # Aufruf: tools/dev/export_windows.sh          Umgebung: GODOT=/pfad/zu/godot
 set -eu
 GODOT="${GODOT:-godot}"; PROJ="$(cd "$(dirname "$0")/../.." && pwd)"; cd "$PROJ"
-if [ ! -f Musik/Hintergrund/morgenwind.wav ]; then
-	echo "Hintergrundmusik fehlt: wird erzeugt (rund 30 s) ..."; python3 -X utf8 -I tools/make_music.py >/dev/null
-fi
+echo "Hintergrundmusik: fehlende Stücke werden erzeugt (je Stück einige Sekunden) ..."
+python3 -X utf8 -I tools/make_music.py --missing
 "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
 mkdir -p build
 rm -f "build/Halt Kurs.exe" build/Halt_Kurs_Windows.zip

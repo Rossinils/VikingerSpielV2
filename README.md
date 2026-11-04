@@ -25,7 +25,8 @@ Spielstand, Gedenkstein und Einstellungen liegen in `%APPDATA%\Halt Kurs v2` (Wi
 Der Ordner `Musik/` (214 MB) steht in `.gitignore`. Fehlen Stücke, bleibt das Spiel in der Musik stumm (Effekte gibt es trotzdem) und
 meldet beim Start einmal, wie viele fehlen.
 
-* Die vier **Hintergrundstücke** ohne Gesang erzeugt `python tools/make_music.py` (nur Standardbibliothek) nach `Musik/Hintergrund/`.
+* Die zehn **Hintergrundstücke** ohne Gesang erzeugt `python tools/make_music.py` (nur Standardbibliothek, rund eine Minute) nach `Musik/Hintergrund/`.
+  Wer schon einen `Musik/`-Ordner hat, holt nur die neuen Stücke mit `python tools/make_music.py --missing`.
 * Die **Lieder mit Gesang** kommen nicht aus den Skripten und müssen von Hand in `Musik/` liegen (Dateinamen: siehe
   `scripts/music.gd`, Tabelle `TRACKS`).
 * Danach Godot einmal öffnen oder `tools/dev/rungd.sh import` ausführen, damit die neuen Dateien importiert werden.
@@ -37,7 +38,7 @@ Alles läuft ohne Fenster und ohne Ton:
 ```
 godot --headless --path . --script tools/selftest.gd     # Regeln und Oberfläche, Ende: "FEHLER: 0"
 godot --headless --path . --script tools/sfxtest.gd      # Klänge
-godot --headless --path . --script tools/musictest.gd    # Musikregie (übersprungen, solange nicht alle 8 Stücke da sind)
+godot --headless --path . --script tools/musictest.gd    # Musikregie (der Abspielteil läuft nur, wenn alle 14 Stücke da sind)
 godot --headless --path . --script tools/eventtest.gd    # Ereignisfelder des Deckkampfs (200 Kämpfe)
 godot --headless --path . --script tools/figtest.gd      # Körperfiguren: 25 Streifen, 780 Bilder, Rand, Anker, Ersatzbilder
 godot --headless --path . --script tools/directortest.gd # Kampfregie: Kamera, Beat-Arten, Zeitleisten, Zeitbudget, Standbild, 40 Kämpfe
@@ -81,10 +82,12 @@ unter einer Minute und liefert byteweise dieselben Dateien wie die eingecheckten
 | `tools/make_slot_art.py` | `slots.png` (Walzensymbole) |
 | `tools/make_stage_art.py` | `stage_back.png`, `stage_rail.png`, `stage_deck.png`, `stage_glow.png`, `stage_fog.png` und `scripts/stage_atlas.gd` (Bühne des Deckkampfs: fünf Orte) |
 | `tools/make_fig_rig.py` | `assets/fig/<id>.png` (25 Streifen mit je 32 Bildern und einer weißen Zeile für den Trefferblitz) und `scripts/fig_atlas.gd` (Anker). Rechnet mit `rig_core.py` (Körper-Rig), `rig_figures.py` (23 Menschen), `rig_beasts.py` (Hund, Fangarm); `python -X utf8 -I tools/make_fig_rig.py sheet <Ordner>` zeichnet Kontaktblätter zum Ansehen (`docs/grafik/rig_*.png`) |
-| `tools/make_route_props.py` | `route_props.png` (Bilder der zehn Ereignisse unterwegs, treiben neben dem Heck) |
+| `tools/make_route_props.py` | `route_props.png` (Bilder der zehn Ereignisse unterwegs in zwei Bildern, treiben neben dem Heck) |
+| `tools/make_supply_icons.py` | `supply_icons.png` (Verband, Schnaps, Teerfass, Harpune, Fokus; 16×16) |
+| `tools/make_status_icons.py` | `status_icons.png` (12 Zustandssymbole des Deckkampfs, 9×9) |
 | `tools/make_item_icons.py` | `item_icons.png` (36 Gegenstands-Symbole x 4 Seltenheiten), `perk_emblems.png` (14 Segen-Embleme) und `scripts/item_icons.gd`; Übersicht: `docs/grafik/` |
 | `tools/make_sfx.py` | `assets/sfx/*.wav` (Klänge; „It's alive!“ nutzt die Rohstimmen aus `tools/voice/`) |
-| `tools/make_music.py` | `Musik/Hintergrund/*.wav` |
+| `tools/make_music.py` | `Musik/Hintergrund/*.wav` (zehn Stücke; `--missing` nur die fehlenden) |
 
 Aufruf: `python -X utf8 -I tools/make_art.py`. Danach `tools/dev/rungd.sh import` (bzw. Godot öffnen).
 
@@ -129,6 +132,6 @@ Zahlenschrift der Wucht, neue Klänge (Schichten für schwere Treffer und Todess
 * **Vorlagen:** Godot braucht die Exportvorlagen 4.7.2. Im Editor: *Projekt → Exportieren → Exportvorlagen verwalten → Herunterladen*.
   Per Hand genügt `windows_release_x86_64.exe` samt `version.txt` in `~/.local/share/godot/export_templates/4.7.2.stable/`
   (Windows: `%APPDATA%\Godot\export_templates\4.7.2.stable\`).
-* **Musik:** Die Exe enthält, was in `Musik/` liegt. Das Skript erzeugt bei Bedarf die vier Hintergrundstücke; die Lieder mit Gesang
+* **Musik:** Die Exe enthält, was in `Musik/` liegt. Das Skript erzeugt fehlende Hintergrundstücke (`--missing`); die Lieder mit Gesang
   kommen nur mit, wenn sie in `Musik/` liegen. Für die volle Fassung also dort exportieren, wo dein `Musik/`-Ordner liegt.
 * Die Datei ist nicht signiert; Windows warnt beim ersten Start („Weitere Informationen → Trotzdem ausführen“).

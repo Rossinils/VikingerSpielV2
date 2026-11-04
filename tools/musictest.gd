@@ -18,7 +18,99 @@ func check(cond: bool, what: String) -> void:
 		print("FAIL ", what)
 
 
+## Regie ohne Ton und ohne Dateien: welche Stimmung, welches Stück, was einspringt, wenn Stücke fehlen. Läuft immer.
+func logic_tests() -> void:
+	var v := Voyage.new()
+	root.add_child(v)
+	v.begin()
+	var m := MusicDirector.new()
+	m.voy = v
+	root.add_child(m)
+	m._missing = {}  # so tun, als wären alle Stücke da
+	v.theme = 0
+	v.sea_view = 2
+	v.front = v.ship_at() - 3.0
+	check(m.mood_now() == "calm" and m._desired() == MusicDirector.Track.MORGENWIND, "ruhige See: Morgenwind")
+	# Deckkampf: eigene Musik, jeder Kampf das nächste Stück der Liste
+	v.phase = Voyage.Phase.COMBAT
+	v.fight_prep = {"formation": "raeuber"}
+	m._process(0.1)
+	var f1 := m._desired()
+	check(m.mood_now() == "fight" and f1 == MusicDirector.Track.SCHILDWALL, "Deckkampf: Schildwall (nicht die ruhige Musik)")
+	v.phase = Voyage.Phase.PLAN
+	m._process(0.1)
+	v.phase = Voyage.Phase.COMBAT
+	m._process(0.1)
+	check(m._desired() == MusicDirector.Track.PLANKEN, "der nächste Deckkampf: Blutige Planken")
+	v.fight_prep = {"formation": "kraken"}
+	check(m.mood_now() == "boss" and m._desired() == MusicDirector.Track.TIEFE, "Kraken: Aus der Tiefe")
+	v.phase = Voyage.Phase.ENCOUNTER
+	v.encounter = Encounters.Id.KRAKEN
+	check(m._desired() == MusicDirector.Track.TIEFE, "Kraken taucht auf: schon vor dem Kampf Aus der Tiefe")
+	v.encounter = Encounters.Id.IRRLICHTER
+	check(m._desired() == MusicDirector.Track.NEBEL, "Irrlichter: Nebelfahrt")
+	v.encounter = Encounters.Id.HAENDLER
+	m._current = MusicDirector.Track.MORGENWIND
+	check(m.mood_now() == "", "gewöhnliche Begegnung: das Stück bleibt")
+	v.encounter = -1
+	v.phase = Voyage.Phase.PLAN
+	v.camping = true
+	check(m._desired() == MusicDirector.Track.LAGER, "Lager: Lagerfeuer")
+	v.camping = false
+	v.theme = 1
+	check(m._desired() == MusicDirector.Track.NEBEL, "Nebelmeer bei ruhiger See: Nebelfahrt")
+	v.theme = 0
+	v.front = v.ship_at()
+	check(m.mood_now() == "storm" and m._desired() == MusicDirector.Track.STURMWACHE, "Sturmfront hat das Schiff eingeholt: Sturmwache")
+	v.front = v.ship_at() - 3.0
+	# Abwechslung: nach einer Weile in derselben Stimmung das nächste Stück
+	m._mood = "calm"
+	m._current = MusicDirector.Track.MORGENWIND
+	m._since = MusicDirector.ROTATE + 1.0
+	m._process(0.1)
+	check(m._desired() == MusicDirector.Track.RUDER, "ruhige See nach einigen Minuten: Ruderlied")
+	# nie Gesang unterwegs, auch nicht im Kampf und im Lager
+	var vocal := false
+	for ph in [Voyage.Phase.PLAN, Voyage.Phase.RESOLVE, Voyage.Phase.ENCOUNTER, Voyage.Phase.RESCUE, Voyage.Phase.COMBAT]:
+		for enc in [-1, Encounters.Id.DRAUGR, Encounters.Id.KRAKEN, Encounters.Id.HAFEN, Encounters.Id.WAL]:
+			for sea in [1, 3, 5]:
+				for camp in [false, true]:
+					v.phase = ph
+					v.encounter = enc
+					v.sea_view = sea
+					v.camping = camp
+					var t := m._desired()
+					if t >= 0 and bool(MusicDirector.TRACKS[t]["vocal"]):
+						vocal = true
+	v.phase = Voyage.Phase.PLAN
+	v.encounter = -1
+	v.camping = false
+	check(not vocal, "unterwegs (auch im Kampf und Lager) nie ein Lied mit Gesang")
+	# fehlen Stücke, springt ein anderes ein; fehlt alles, bleibt es still (-1)
+	m._missing = {MusicDirector.Track.SCHILDWALL: true, MusicDirector.Track.PLANKEN: true}
+	m._pick.erase("fight")
+	v.phase = Voyage.Phase.COMBAT
+	v.fight_prep = {"formation": "raeuber"}
+	check(m._desired() == MusicDirector.Track.EISEN, "ohne die neuen Kampfstücke: Eisen und Salz")
+	m._missing = {MusicDirector.Track.SCHILDWALL: true, MusicDirector.Track.PLANKEN: true, MusicDirector.Track.EISEN: true}
+	check(m._desired() == MusicDirector.Track.STURMWACHE, "ohne jedes Kampfstück: Sturmwache als Ersatz")
+	v.phase = Voyage.Phase.PLAN
+	m.menu = true
+	m._missing = {MusicDirector.Track.UFER: true, MusicDirector.Track.LANGSCHIFF: true}
+	check(m._desired() == MusicDirector.Track.MORGENWIND, "Hauptmenü ohne Lieder mit Gesang: Morgenwind")
+	m.menu = false
+	# Schleife: auch ohne Schleifenmarke im Import
+	var path := String(MusicDirector.TRACKS[MusicDirector.Track.MORGENWIND]["path"])
+	if ResourceLoader.exists(path):
+		var w := load(path) as AudioStreamWAV
+		MusicDirector._make_loop(w)
+		check(w.loop_mode == AudioStreamWAV.LOOP_FORWARD and w.loop_end > 0, "Hintergrundstücke laufen in Endlosschleife")
+	m.queue_free()
+	v.queue_free()
+
+
 func _initialize() -> void:
+	logic_tests()
 	var present := 0
 	for t in MusicDirector.TRACKS:
 		if ResourceLoader.exists(String(MusicDirector.TRACKS[t]["path"])):
@@ -26,13 +118,14 @@ func _initialize() -> void:
 	if present < MusicDirector.TRACKS.size():
 		# Musik/ liegt nicht im Repository (tools/make_music.py erzeugt nur die vier Hintergrundstücke): der Test
 		# braucht alle acht (Seegang 3 spielt die Fassung ohne Gesang, das Hauptmenü ein Lied mit Gesang)
-		print("übersprungen: nur %d von %d Musikstücken vorhanden (Musik/ liegt nicht im Repository, siehe README)" % [present, MusicDirector.TRACKS.size()])
-		print("FEHLER: 0")
-		quit(0)
+		print("übersprungen: Abspielteil, nur %d von %d Musikstücken vorhanden (Musik/ liegt nicht im Repository, siehe README)" % [present, MusicDirector.TRACKS.size()])
+		print("FEHLER: ", fails)
+		quit(1 if fails > 0 else 0)
 		return
 	voy = Voyage.new()
 	root.add_child(voy)
 	voy.begin()
+	voy.theme = 0
 	music = MusicDirector.new()
 	music.voy = voy
 	root.add_child(music)
@@ -70,7 +163,7 @@ func _process(_delta: float) -> bool:
 						check(false, "Stück %d wurde nicht geladen" % t)
 						return finish()
 					return false
-			check(true, "alle acht Stücke geladen")
+			check(true, "alle Stücke geladen")
 			for t in MusicDirector.TRACKS:
 				var s2 := music._stream_for(t) as AudioStreamWAV
 				check(s2.loop_mode == AudioStreamWAV.LOOP_FORWARD, "Stück %d läuft in Endlosschleife" % t)
