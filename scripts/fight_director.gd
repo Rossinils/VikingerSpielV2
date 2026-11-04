@@ -330,6 +330,9 @@ func _apply_end(b: BeatPlanner.Beat) -> void:
 
 ## Platztausch und Vorrücken durch Fertigkeiten: `move` meldet je Beteiligtem die neue Reihe (n). Die Figuren gleiten (der vordere hüpft).
 func _apply_moves(b: BeatPlanner.Beat) -> void:
+	if b.moves_done:
+		return
+	b.moves_done = true
 	var touched := {}
 	for e in b.evs:
 		if String(e["type"]) != "move":
@@ -516,6 +519,11 @@ func _start_beat(b: BeatPlanner.Beat) -> void:
 	_release = -1.0
 	_killcam_done = false
 	_played += 1
+	if b.kind == "platztausch" or b.kind == "flucht":
+		_apply_moves(b)  # der Tausch und die Flucht laufen während des Beats, nicht erst danach
+		for e in b.evs:
+			if String(e["type"]) == "flee" and e["who"] != null:
+				_flee_now(e["who"])
 	_camera_for(b)
 
 
@@ -774,6 +782,9 @@ func _finish_view(v: FightViews.FigView) -> void:
 		v.drop += (1.0 - v.pop) * 10.0
 	if _result == "win" and v.alive and v.f.side == 0 and _cur == null and v.frame == "":
 		v.frame = "cheer_%d" % (int((_clock + float(v.f.rank) * 0.3) / 0.2) % 3)
+	if v.alive and v.frame == "" and v.f.side == 0 and v.f.held_by != null and not v.f.held_by.gone and v.gone_kind == "":
+		v.frame = "grab"  # vom Fangarm gepackt: die Beine baumeln
+		v.drop -= 6.0
 	var lt := _target_lit(v)
 	v.lit = move_toward(v.lit, lt, (1.0 / 0.14 if lt > v.lit else 1.0 / 0.16) * _last_dt)
 

@@ -93,6 +93,7 @@ class Beat extends RefCounted:
 	var heroes_dead: Array = []
 	var lunge := 0.0
 	var big_death := false
+	var moves_done := false       # Platztausch und Flucht laufen schon am Anfang des Beats (nicht erst am Ende)
 	var last_foe := false
 	var mode := Mode.FULL
 	var short := false

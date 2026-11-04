@@ -2195,11 +2195,11 @@ func _on_cue(kind: String, d: Dictionary) -> void:
 			var sk := String(d["sk"])
 			_ev_actor = who
 			_ev_sk = sk
-			Sfx.play(Sfx.skill_sound(sk, "go"))
-			_fx_go(c, who, sk)
 			var tgts: Array = d["tgts"]
 			var contacts: Array = d["contacts"]
 			var release := float(d.get("release_in", 0.0)) / 1000.0
+			Sfx.play(Sfx.skill_sound(sk, "go"), 0.0, maxf(release - 0.07, 0.0))  # das Pfeifen des Hiebs kurz vor dem Schlag
+			_fx_go(c, who, sk)
 			for i in tgts.size():
 				if tgts[i] != who and FightFx.is_flight(sk):
 					_fx_flight(who, tgts[i], sk, release, float(contacts[i]) / 1000.0, bool(d.get("miss", false)))
