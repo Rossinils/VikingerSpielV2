@@ -21,6 +21,14 @@ const REPAIR_PER_MAN := 8.0  # Rumpf, den ein Zimmermann bei voller Kraft pro Fa
 const THEMES := ["Nordsee", "Nebelmeer", "Sturmfront", "Piratengewässer", "Totensee"]  # Etappen-Themen, siehe _pick_theme()
 const STAGE_HARDNESS := 0.2  # so viel härter wird die See je Etappe (Seegangs- und Gefahrenschaden)
 const SEA_PROFILE := [1, 2, 3, 3, 4, 5, 4, 3, 2, 1]
+## Schwierigkeit der Fahrt (Settings.difficulty beim Start einer neuen Fahrt): Härte von Seegang, Gefahren und Gegnern,
+## Beute, Tempo und Vorsprung der Sturmfront, Startproviant.
+const DIFFICULTY := [
+	{"name": "Seebär", "hard": 0.8, "foes": 0.85, "loot": 0.9, "front": 0.45, "gap": 3.0, "proviant": 4},
+	{"name": "Sturm", "hard": 1.0, "foes": 1.0, "loot": 1.0, "front": 0.55, "gap": 2.5, "proviant": 0},
+	{"name": "Ragnarök", "hard": 1.3, "foes": 1.2, "loot": 1.2, "front": 0.65, "gap": 2.0, "proviant": -4},
+]
+const FRONT_CAMP := 1.0  # so viele Meilen holt die Sturmfront auf, während man lagert
 const VISIBLE_AHEAD := 3  # so viele Meilen voraus kennt man die Knoten (im Nebel nur eine)
 const CREW_NAMES := ["Bjarne", "Gunnar", "Ragnar", "Halvar", "Torvald", "Eirik", "Sigurd", "Ulf", "Leif", "Knut", "Orm", "Hakon", "Arne", "Dag", "Einar", "Finn", "Gorm", "Harald", "Ivar", "Kjell", "Olaf", "Rurik", "Sven", "Vidar"]
 const RESERVE_BASE := 2  # Reserveplätze ohne Gegenstände; mit Hängematten höchstens RESERVE_MAX
@@ -46,6 +54,8 @@ var proviant := START_PROVIANT
 var loot := 100.0
 var powder := 0  # Schießpulver für die Kanonen
 var stage := 1  # Etappe; mit jeder wird die See härter
+var difficulty := 1  # Voyage.DIFFICULTY: 0 Seebär, 1 Sturm, 2 Ragnarök (vor begin() setzen)
+var front := -2.5  # Sturmfront: ihre Lage in Meilen der Etappe (wie mile + leg); sie rückt je Wache vor
 var theme := 0  # Thema der Etappe (Voyage.THEMES): 0 Nordsee, 1 Nebelmeer, 2 Sturmfront, 3 Piratengewässer, 4 Totensee
 var total_miles := 0.0  # insgesamt gefahrene Strecke
 var level := 1  # Stufe der Fahrt (Ruhm): bei jedem Aufstieg ein Segen
@@ -137,6 +147,8 @@ var loki_round := 0
 var loki_pot := 0  # Gewinn, über den noch entschieden wird (kassieren oder Risiko)
 var loki_ladder := 0
 var loki_reward: Dictionary = {}
+var supplies := {}  # Vorräte (Supplies.ORDER): Schlüssel -> Anzahl; gekauft beim Krämer im Hafen
+var focus_armed := false  # Fokus für die nächste Probe angesagt (Taste F oder Knopf in der Begegnung)
 var pfand := 0  # Pfandflaschen (legendärer Schlüsselgegenstand, siehe Items.PFAND_NAME): je eine für ein sicheres Freispiel bei Adlersson
 var _harbor_spins := 0
 var fallen_names: Array[String] = []  # Namen aller Gefallenen, auch wenn ihr Platz neu besetzt wurde
@@ -188,6 +200,9 @@ func begin() -> void:
 		slot_owner[i] = m
 		start_names.append(m.display_name)
 	_make_bonds()
+	proviant += int(DIFFICULTY[difficulty]["proviant"])
+	front = -float(DIFFICULTY[difficulty]["gap"])
+	_mods_changed()
 	_make_map()
 	if autosave:
 		_apply_legacy()
@@ -515,7 +530,45 @@ func _pick_theme() -> void:
 
 ## Wie viel härter ist die See auf dieser Etappe? Faktor auf Seegangs- und Gefahrenschaden.
 func stage_mul() -> float:
+	return (1.0 + STAGE_HARDNESS * float(stage - 1)) * float(DIFFICULTY[difficulty]["hard"])
+
+
+## Preise wachsen mit der Etappe, nicht mit der Schwierigkeit.
+func price_mul() -> float:
 	return 1.0 + STAGE_HARDNESS * float(stage - 1)
+
+
+func diff_name() -> String:
+	return String(DIFFICULTY[difficulty]["name"])
+
+
+## Kurzbeschreibung einer Schwierigkeitsstufe (für Einstellungen und Hinweise).
+static func diff_text(i: int) -> String:
+	match i:
+		0:
+			return "Mildere See, schwächere Gegner, mehr Proviant, die Sturmfront kommt langsam."
+		2:
+			return "Härtere See, zähere Gegner, weniger Proviant, die Sturmfront kommt schnell; dafür mehr Beute."
+		_:
+			return "So ist die Fahrt gedacht."
+
+
+## Sturmfront: wo das Schiff liegt, wie viel Vorsprung es hat (unter 0: im Sturm), wie schnell sie kommt.
+func ship_at() -> float:
+	return float(mile) + leg
+
+
+func front_gap() -> float:
+	return ship_at() - front
+
+
+func front_speed() -> float:
+	return float(DIFFICULTY[difficulty]["front"])
+
+
+## Holt die Sturmfront das Schiff in der nächsten Wache ein (oder hat sie es schon)?
+func storm_next() -> bool:
+	return front + front_speed() >= ship_at() - 0.001
 
 
 ## Ankerbuchten: ruhige Knoten ohne Gefahr und Begegnung, in denen man sicher lagern kann.
@@ -693,6 +746,7 @@ func ship_mods() -> Dictionary:
 				m[key] = float(m[key]) + float(src[key])
 			else:
 				m[key] = float(m[key]) * float(src[key])
+	m["loot"] = float(m["loot"]) * float(DIFFICULTY[difficulty]["loot"])
 	_mods = m
 	return m
 
@@ -799,7 +853,7 @@ func buy_offer(i: int) -> bool:
 
 
 func repair_price() -> int:
-	return roundi(20.0 * stage_mul())
+	return roundi(20.0 * price_mul())
 
 
 ## In der Werft: 25 Rumpf für Beute.
@@ -814,7 +868,117 @@ func buy_repair() -> bool:
 
 
 func powder_price() -> int:
-	return roundi(15.0 * stage_mul())
+	return roundi(15.0 * price_mul())
+
+
+# --- Vorräte und Fokus ----------------------------------------------------------------------
+
+const FOCUS_MAX := 2  # Fokuspunkte je Mann und Etappe
+const FOCUS_BONUS := 0.15  # so viel bessere Aussicht bei Kampfproben
+const FOCUS_STRESS := 5.0  # Fokus kostet Nerven: Verzweiflung für den, der sich sammelt
+
+
+func supply(k: String) -> int:
+	return int(supplies.get(k, 0))
+
+
+func can_buy_supply(k: String) -> bool:
+	return shop_open and Supplies.has_key(k) and supply(k) < Supplies.cap(k) and loot >= float(Supplies.price(self, k))
+
+
+## Beim Krämer im Hafen kaufen.
+func buy_supply(k: String) -> bool:
+	if not can_buy_supply(k):
+		return false
+	var pr := Supplies.price(self, k)
+	loot -= float(pr)
+	supplies[k] = supply(k) + 1
+	Sfx.play("coin")
+	_fact("Krämer: %s gekauft (Beute −%d)." % [Supplies.name_of(k), pr], Kind.GOOD)
+	return true
+
+
+## Lässt sich das Gut jetzt auf See einsetzen (in der Planung, mit Wirkung)?
+func can_use_supply(k: String) -> bool:
+	if phase != Phase.PLAN or ended or supply(k) <= 0 or not bool((Supplies.DATA.get(k, {}) as Dictionary).get("sea", false)):
+		return false
+	match k:
+		"verband":
+			return _weakest_aboard() != null and _weakest_aboard().kraft < 99.5
+		"schnaps":
+			for m in crew:
+				if m.state == CrewMember.State.ABOARD and m.stress > 0.5:
+					return true
+			return false
+		"teer":
+			return hull < hull_max() - 0.5
+	return false
+
+
+func _weakest_aboard() -> CrewMember:
+	var best: CrewMember = null
+	for m in crew:
+		if m.state == CrewMember.State.ABOARD and (best == null or m.kraft < best.kraft):
+			best = m
+	return best
+
+
+## Ein Gut auf See einsetzen: Verband, Schnaps oder Teer.
+func use_supply(k: String) -> bool:
+	if not can_use_supply(k):
+		return false
+	supplies[k] = supply(k) - 1
+	match k:
+		"verband":
+			var m := _weakest_aboard()
+			m.kraft = minf(m.kraft + 30.0, 100.0)
+			Sfx.play("heal")
+			_fact("Verband: %s Kraft +30." % m.display_name, Kind.GOOD)
+		"schnaps":
+			for m2 in crew:
+				if m2.state == CrewMember.State.ABOARD:
+					m2.stress = maxf(m2.stress - 8.0, 0.0)
+			Sfx.play("mug")
+			_fact("Schnaps für alle: Verzweiflung −8.", Kind.GOOD)
+		"teer":
+			hull = minf(hull + 15.0, hull_max())
+			Sfx.play("hammer")
+			_fact("Teer in die Fugen: Rumpf +15.", Kind.GOOD)
+	_mods_changed()
+	return true
+
+
+func focus_total() -> int:
+	var n := 0
+	for m in crew:
+		if m.state == CrewMember.State.ABOARD:
+			n += m.fokus
+	return n
+
+
+## Greift Fokus bei dieser Option? Nur bei echten Proben (Aussicht oder mehrere Ausgänge), nicht bei Deckkämpfen und Käufen.
+static func focus_applies(opt: Dictionary) -> bool:
+	if opt.has("formation") or opt.has("tactic") or opt.has("slot") or bool(opt.get("shop", false)) or bool(opt.get("crew", false)):
+		return false
+	return opt.has("fight") or (opt.get("outcomes", []) as Array).size() >= 2
+
+
+func toggle_focus() -> void:
+	if phase != Phase.ENCOUNTER or Encounters.is_harbor(encounter) or Encounters.is_battle(encounter):
+		focus_armed = false
+		return
+	focus_armed = not focus_armed and focus_total() > 0
+
+
+## Wer sich sammelt: der Mann mit dem meisten Fokus, bei Gleichstand der Ruhigste.
+func _focus_man() -> CrewMember:
+	var best: CrewMember = null
+	for m in crew:
+		if m.state != CrewMember.State.ABOARD or m.fokus <= 0:
+			continue
+		if best == null or m.fokus > best.fokus or (m.fokus == best.fokus and m.stress < best.stress):
+			best = m
+	return best
 
 
 ## Vier Fässer Schießpulver für Beute (nur mit Kanonen sinnvoll).
@@ -1325,6 +1489,7 @@ func plan(d: Dictionary = {}) -> Dictionary:
 	if count == 0:
 		count = 1  # Beidrehen oder Treiben: See an Ort und Stelle
 	var hm := stat("hazard") * stage_mul()
+	var stormy := storm_next()  # die Sturmfront hat das Schiff eingeholt: die See ist einen Grad schwerer
 	var rows: Array = []
 	var strain_sum := 0.0
 	var hazard_dmg := 0.0
@@ -1347,6 +1512,8 @@ func plan(d: Dictionary = {}) -> Dictionary:
 			ni = int(move["route"])
 			sea = int(node_at(col, ni)["sea"])
 			weight = clampf(lg_end if not arrivals.is_empty() else dist, 0.4, 1.0)
+		if stormy:
+			sea = mini(sea + 1, 5)
 		last_sea = sea
 		var row := {
 			"kind": kind, "col": col, "ni": ni, "sea": sea, "last": k == count - 1, "weight": weight,
@@ -1383,7 +1550,7 @@ func plan(d: Dictionary = {}) -> Dictionary:
 		"event": move["event"],
 		"strain": strain_sum, "hazard_dmg": hazard_dmg, "repair": repair,
 		"hull_after": minf(hull - damage + repair, hull_max()),
-		"proviant": int(d["proviant"]) + extra_food(), "tired": tired, "last_sea": last_sea,
+		"proviant": int(d["proviant"]) + extra_food(), "tired": tired, "last_sea": last_sea, "storm": stormy,
 	}
 
 
@@ -1517,6 +1684,10 @@ func _begin_resolve() -> void:
 	var moving := float(_plan["miles"]) > 0.0
 	rowing_now = moving and bool(d["rows"])
 	_lore(String(d["story"]))
+	front += front_speed()
+	if bool(_plan.get("storm", false)):
+		_fact("Die Sturmfront hat euch eingeholt: die See geht einen Grad schwerer.", Kind.BAD)
+		storm = maxf(storm, 0.85)
 	Sfx.play("horn")
 	if absf(float(d["sail"]) - sail_visual) > 0.4:
 		Sfx.play("sail", 0.0, 0.5)
@@ -1655,6 +1826,11 @@ func _do_upkeep() -> void:
 			was_ok.append(m)
 		m.kraft = clampf(m.kraft - _kraft_cost(m, d, sea_view, had_work), 0.0, 100.0)
 		_add_stress(m, _stress_gain(d, sea_view, m.kraft))
+	if bool(_plan.get("storm", false)):
+		for m in crew:
+			if m.state == CrewMember.State.ABOARD:
+				_add_stress(m, 3.0)
+		_fact("Im Sturm: Verzweiflung +3 für alle", Kind.BAD)
 	var exhausted: Array[String] = []
 	for m in was_ok:
 		if m.kraft < CrewMember.TIRED_AT:
@@ -1786,6 +1962,9 @@ func _complete_stage() -> void:
 	mile = 0
 	pos = 0
 	leg = 0.0
+	front = -float(DIFFICULTY[difficulty]["gap"])
+	for fm in crew + reserve:
+		fm.fokus = FOCUS_MAX
 	route = -1
 	shop = []
 	shop_open = false
@@ -1850,6 +2029,8 @@ func _start_encounter() -> void:
 		werft_tab = 0
 		shop_open = false
 		Sfx.play("bell")
+	elif Encounters.ROUTE_SND.has(encounter):
+		Sfx.play(String(Encounters.ROUTE_SND[encounter]))
 	else:
 		Sfx.play("sting")
 	if bool(def.get("battle", false)):
@@ -1903,8 +2084,20 @@ func decide_encounter(i: int) -> void:
 	if cost.has("proviant"):
 		proviant = maxi(proviant - int(cost["proviant"]), 0)
 		_fact("Bezahlt: Proviant −%d (noch %d)" % [int(cost["proviant"]), proviant], Kind.FACT)
+	for sk in Supplies.cost_keys(cost):
+		supplies[sk] = maxi(supply(sk) - int(cost[sk]), 0)
+		_fact("Eingesetzt: %s (noch %d)" % [Supplies.name_of(sk), supply(sk)], Kind.FACT)
 	_fact("%s: %s" % [Encounters.DATA[encounter]["name"], opt["label"]], Kind.FACT)
-	var outcome := Encounters.pick(self, opt)
+	var focused := false
+	if focus_armed and focus_applies(opt):
+		var fm := _focus_man()
+		if fm != null:
+			fm.fokus -= 1
+			_add_stress(fm, FOCUS_STRESS)
+			focused = true
+			_fact("Fokus: %s sammelt sich (Verzweiflung +%d)." % [fm.display_name, roundi(FOCUS_STRESS)], Kind.FACT)
+	focus_armed = false
+	var outcome := Encounters.pick(self, opt, focused)
 	_steps = [{"delay": 1.2, "fn": _apply_outcome.bind(outcome)}, {"delay": 1.4, "fn": _after_encounter}]
 	_step_left = 1.2
 
@@ -2786,6 +2979,7 @@ func to_dict() -> Dictionary:
 		"fallen_names": fallen_names, "start_names": start_names, "death_causes": death_causes,
 		"saga": saga_events, "storm_noted": _storm_noted, "crew": crew_data, "bonds": bonds, "relief": relief,
 		"reserve": reserve_data, "next_id": _next_id, "food_acc": _food_acc, "camps": camps_used,
+		"difficulty": difficulty, "front": front, "supplies": supplies,
 		"history": history.slice(maxi(history.size() - 20, 0)),
 	}
 
@@ -2819,6 +3013,16 @@ func resume(d: Dictionary) -> void:
 	loot = float(d["loot"])
 	turns = int(d["turns"])
 	stage = int(d.get("stage", 1))
+	difficulty = clampi(int(d.get("difficulty", 1)), 0, DIFFICULTY.size() - 1)
+	front = float(d.get("front", -float(DIFFICULTY[difficulty]["gap"])))
+	supplies = {}
+	focus_armed = false
+	var sd: Variant = d.get("supplies", {})
+	if sd is Dictionary:
+		for sk in (sd as Dictionary):
+			if Supplies.has_key(String(sk)) and int(sd[sk]) > 0:
+				supplies[String(sk)] = clampi(int(sd[sk]), 0, Supplies.cap(String(sk)))
+	_mods_changed()
 	relief = bool(d.get("relief", true))
 	theme = clampi(int(d.get("theme", 0)), 0, THEMES.size() - 1)
 	total_miles = float(d.get("total_miles", 0.0))
@@ -2909,7 +3113,7 @@ func start_fight(formation: String, ctx: Dictionary, count: int = -1, hp_scale: 
 		pool.append(m)
 	fight_prep = {
 		"formation": formation, "units": Foes.units_for(formation, stage, count), "party": Combat.auto_party(self),
-		"pool": pool, "ctx": ctx, "hp_scale": hp_scale,
+		"pool": pool, "ctx": ctx, "hp_scale": hp_scale * float(DIFFICULTY[difficulty]["foes"]),
 	}
 	Sfx.play("kraken_roar" if formation == "kraken" else "sting")
 	_fact("Zum Kampf: %s." % String(Foes.FORMATIONS[formation]["name"]), Kind.BAD)
@@ -3157,6 +3361,8 @@ func camp_end() -> void:
 		return
 	camping = false
 	selected = null
+	front += FRONT_CAMP
+	_fact("Während ihr lagert, kommt die Sturmfront %s Meilen näher." % fmt(FRONT_CAMP), Kind.FACT)
 	_camp_night()
 	_check_breakdown()
 	if hull <= 0.0:
@@ -3422,6 +3628,7 @@ func _man_dict(m: CrewMember) -> Dictionary:
 		"id": m.id, "name": m.display_name, "look": m.look, "state": int(m.state), "slot": m.slot,
 		"kraft": m.kraft, "stress": m.stress, "afflicted": m.afflicted, "affliction": m.affliction,
 		"traits": m.traits, "role": m.role, "loadout": m.loadout, "weapon": m.weapon_lvl, "armor": m.armor_lvl, "slv": m.skill_lvl, "gear": m.gear,
+		"fokus": m.fokus,
 	}
 
 
@@ -3436,6 +3643,7 @@ func _man_from(cd: Dictionary) -> CrewMember:
 	m.stress = float(cd["stress"])
 	m.afflicted = bool(cd["afflicted"])
 	m.affliction = int(cd["affliction"])
+	m.fokus = clampi(int(cd.get("fokus", FOCUS_MAX)), 0, FOCUS_MAX)
 	m.traits = Traits.typed(cd["traits"])
 	m.role = int(cd.get("role", Roles.random_role()))
 	m.loadout = Roles.valid_loadout(m.role, cd.get("loadout", []))

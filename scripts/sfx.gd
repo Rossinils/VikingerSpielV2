@@ -21,6 +21,8 @@ const GAIN := {
 	"slot_lever": -6.0, "slot_spin": -9.0, "slot_stop": -4.0, "slot_tick": -12.0, "slot_win1": -6.0, "slot_win2": -4.0,
 	"slot_win3": -3.0, "slot_coins": -7.0, "slot_jackpot": -2.0, "slot_tease": -5.0, "slot_zap": -6.0, "slot_coil": -5.0,
 	"slot_alive": -1.0, "slot_flip": -5.0, "slot_lose": -6.0, "slot_curse": -4.0, "slot_power": -5.0, "slot_stack": -4.0,
+	"hit_heavy": -3.0, "deathblow": -2.0, "slow_in": -6.0, "slow_out": -8.0,
+	"whale": -3.0, "wisp": -6.0, "whirl": -4.0, "ice": -1.0,
 }
 ## Mindestabstand für Klänge, die schneller aufeinander folgen dürfen als MIN_GAP
 const GAP := {"slot_tick": 0.03, "slot_stop": 0.08, "slot_zap": 0.08, "slot_win1": 0.05}

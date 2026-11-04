@@ -19,6 +19,8 @@ Abgrenzung zu *Pixel Piracy*: kein offenes Sandbox-Chaos, sondern handgebaute Et
 - **Etappe:** eine Seekarte mit 10 Meilen, am Ende immer ein Hafen, auf der ersten Etappe auch in der Mitte einer, später meistens. Nach dem Ablegen im Zielhafen beginnt die nächste, **härtere Etappe** (siehe Schwierigkeit).
 - **Stufen:** Erfahrung gibt es für erreichte Knoten (5), gewonnene Begegnungen (25), Seeschlachten (30 + 4 je Etappe) und Etappen (40 + 5 je Etappe). Jede Stufe kostet 60 + 40 × Stufe. Bei jedem **Stufenaufstieg** wählt man einen von drei zufälligen **Segen** (`scripts/perks.gd`): mehr Rumpf, mehr Proviant, schnellere Segel oder Riemen, bessere Zimmerleute, Schutz vor Gefahren, Panzerung, Rammbock, ein Fass Pulver, eine Karte mit größerer Sichtweite und mehr. Segen gelten für den Rest der Fahrt.
 - **Schwierigkeit:** je Etappe +20 % Seegangs- und Gefahrenschaden, nach zwei Etappen ein Grad mehr Seegang (nach vier zwei), mehr Gefahren, mehr Begegnungen, mehr Draugr, Ungeheuer und Räuber, und Gegner mit +12 Rumpf je Etappe, +14 % Schaden und mehr Besatzung. Beute wächst um 12 % je Etappe, die Preise in der Werft (Gegenstände, Rumpf, Pulver) um 10 %; die festen Preise in Hafen und Dorf (Met, Anheuern, Proviant, Handeln, Handwerker) bleiben gleich.
+- **Schwierigkeitsstufen** (Einstellungen, gelten ab der nächsten neuen Fahrt; `Voyage.DIFFICULTY`): **Seebär** (See und Gefahren ×0,8, Gegner ×0,85, Beute ×0,9, Proviant +4, Sturmfront 3 Meilen zurück und 0,45 je Wache), **Sturm** (so ist die Fahrt gedacht: ×1, 2,5 Meilen, 0,55 je Wache), **Ragnarök** (See ×1,3, Gegner ×1,2, Beute ×1,2, Proviant −4, 2 Meilen, 0,65 je Wache). Der Hinweis zur Etappe nennt die Stufe.
+- **Sturmfront (die Uhr der Etappe):** Hinter dem Schiff zieht eine Sturmfront her. Sie beginnt jede Etappe einige Meilen zurück, rückt **je Wache** vor (beim **Lagern** eine ganze Meile) und zieht im Hafen vorbei. Holt sie das Schiff ein, geht die See **einen Grad schwerer** und jede Wache kostet alle an Bord **Verzweiflung +3**. Die Seekarte zeigt sie als dunkles, regnendes Band von unten, die Vorschau ihren Vorsprung („Sturmfront 1,5 Meilen achteraus“, grün über 2, gold ab 1, rot darunter, „Im Sturm!“). Wer trödelt oder oft rastet, segelt im Sturm. Die Musik wechselt dann auf *Sturmwache*.
 - **Etappen-Themen:** Ab der zweiten Etappe hat jede ein Thema (nie zweimal hintereinander dasselbe): **Nebelmeer** (viel Nebel, nur zwei Meilen Sicht), **Sturmfront** (ein Grad mehr Seegang, mehr Böen und Brecher), **Piratengewässer** (dreimal so viele Räuberschiffe), **Totensee** (dreimal so viele Draugr, oft Kraken). Das Thema steht unter dem Kartenkopf.
 - **Vermächtnis:** Der Gedenkstein gibt jeder neuen Fahrt kleine Vorteile mit: weiteste Etappe 3: Beute +50, 4: Proviant +2, 5: Teerung im Rumpf, 7: Odins Gunst; je 8 Gefallene ein Veteran (zäh und stark, höchstens drei). Das Menü zeigt es an. Tests und Bots starten ohne.
 - **Rente für Tests:** `--maxstage=N` (Bots: 6) lässt die Fahrt nach Etappe N enden, damit Testläufe zu Ende kommen.
@@ -116,6 +118,14 @@ Wie die Gänge zwischen den Räumen in *Darkest Dungeon*: Auf einigen Wegen der 
 | **Totenfloß** (ab Etappe 2) | Kämpfen (kleiner Deckkampf gegen zwei Draugr), Anzünden (Kraft −6, 25 %: Rumpf −8) |
 | **Fischschwarm** | Netze auswerfen (Proviant +4, Kraft −6), Weiterfahren |
 
+**Vorräte** öffnen bei manchen Ereignissen eine eigene Karte (bis zu vier Karten): **Harpune** beim Wal (Aussicht 60–95 %: Proviant +10, Beute +20) und beim Seeungeheuer (*Harpunieren*), **Teerfass** bei Treibeis (sicher durch) und am Totenfloß (*Teer und Feuer*: brennt sicher ab), **Verband** beim Schiffbrüchigen (meist ein neuer Mann). Die Ereignisse haben eigene Klänge und bewegen sich: der Wal hebt sich und bläst, Irrlichter tanzen und flackern, der Strudel dreht, Fische springen (zwei Bilder je Ereignis in `assets/route_props.png`).
+
+### Vorräte und Fokus (`scripts/supplies.gd`)
+
+- **Krämer** (fünfter Reiter der Werft im Hafen): **Verband** (12 Beute, bis 3: der Mann mit der wenigsten Kraft bekommt +30), **Schnaps** (10, bis 3: Verzweiflung −8 für alle an Bord), **Teerfass** (18, bis 2: Rumpf +15), **Harpune** (15, bis 2: wirkt nur bei Ereignissen). Preise steigen mit der Etappe wie in der Werft.
+- **Einsetzen:** in der Planung links unten über dem Band (Symbol und Anzahl, Klick setzt ein; ohne Wirkung, z. B. bei heilem Rumpf, geht es nicht). Daneben steht der Fokus.
+- **Fokus:** Jeder Mann hat **je Etappe 2 Fokuspunkte** (violette Rauten auf seiner Karte). In einer Begegnung mit **F** oder dem Knopf im linken Kasten ansagen: bei Kampfproben (Aussicht in Prozent) **+15 Punkte** (höchstens 95 %), bei Würfelproben **zwei Würfe, der bessere Ausgang zählt** (die Ausgänge stehen vom besten zum schlechtesten). Es sammelt sich der Mann mit dem meisten Fokus; das kostet ihn **Verzweiflung +5**. Gilt nicht bei Deckkämpfen, Käufen und sicheren Karten. Die Karten zeigen „Fokus: +15 %“ bzw. „zweiter Wurf“.
+
 Mit den Etappen kommen mehr Räuberboote und Strudel; in Piratengewässern dreimal so viele Enterhaken, im Nebelmeer Irrlichter, in der Totensee Totenflöße, in der Sturmfront Strudel und Treibgut (`Encounters.random_route_type`).
 
 ## Seeschlacht (`scripts/battle.gd`)
@@ -159,18 +169,25 @@ Die Lieder liegen in `Musik/` (WAV, zusammen mit den Liedtexten als .md), die se
 
 | Lage | Stück |
 |---|---|
-| Hauptmenü, nach dem Ruhestand | *Neue Ufer, neues Land* (mit Gesang) |
-| Nach dem Untergang | *Halt aus, mein Freund* (mit Gesang) |
-| Fahrt bei Seegang 1–2 | *Morgenwind* (komponiert, D dorisch, Harfe und Laute über Teppich und Orgelpunkt) |
-| Fahrt bei Seegang 3, Mann über Bord | *Halt aus, mein Freund* ohne Gesang (die Fassung „Without Lead Vocal“) |
-| Fahrt bei Seegang 4–5 | *Sturmwache* (komponiert, A aeolisch, Rahmentrommeln, tremolierende Streicher, Fiedelmotiv) |
-| Seeschlacht | *Eisen und Salz* (komponiert, E phrygisch, schwere Trommeln, Ostinato-Bass, Hornrufe) |
-| Hafen | *Taverne am Kai* (komponiert, G mixolydisch im 6/8-Takt, Laute und Fußtrampeln) |
+| Hauptmenü | *Neue Ufer, neues Land* und *Langschiff durch die See* im Wechsel (mit Gesang) |
+| Nach dem Ruhestand / Untergang | *Neue Ufer, neues Land* / *Halt aus, mein Freund* (mit Gesang) |
+| Fahrt bei Seegang 1–2 | *Morgenwind* (D dorisch, Harfe über Teppich), nach gut drei Minuten im Wechsel mit *Ruderlied* (G dorisch, Trommel auf jedem Ruderschlag, tiefe Hornstimmen wie ein Männerchor, Fiedelweise) |
+| Nebelmeer und Totensee bei ruhiger See | *Nebelfahrt* (E aeolisch mit phrygischem F, leere Harfe, schwebender Teppich, ferne Fiedel), im Wechsel mit *Morgenwind* |
+| Fahrt bei Seegang 3, Mann über Bord | *Halt aus, mein Freund* ohne Gesang; bei Seegang 3 im Wechsel mit *Ruderlied* |
+| Seegang 4–5 **oder die Sturmfront hat das Schiff eingeholt** | *Sturmwache* (A aeolisch, Rahmentrommeln, tremolierende Streicher) |
+| Spuk: Draugr, Wrack, Irrlichter, Totenfloß, Schiffbrüchiger | *Nebelfahrt* |
+| **Deckkampf** | *Schildwall* (D-Moll, 138 Schläge, galoppierender Bass, Trommelwand, Hornrufe), *Blutige Planken* (A phrygisch, schneller 6/8, Fiedelreigen), *Eisen und Salz*: jeder Kampf das nächste |
+| Kraken (Seeschlacht und Deckkampf) | *Aus der Tiefe* (Cis-Moll über dem Tritonus, schwere Schläge, sinkende Hörner, steigender Streichercluster) |
+| Seeschlacht | *Eisen und Salz* (E phrygisch), im Wechsel mit *Schildwall* |
+| Hafen | *Taverne am Kai* (G mixolydisch im 6/8-Takt) |
+| Lager | *Lagerfeuer* (F-Dur/D-Moll im 3/4-Takt, Laute, leise Fiedel, knisterndes Holz) |
 
-Die vier Stücke kommen aus `tools/make_music.py` (reines Python, jeder Lauf liefert dieselbe Musik, Mono 22 kHz, nahtlose Schleife). Sie sind ungehört auf Plausibilität geprüft (Pegel, Schleifennaht, Klangverteilung), nicht nach Gehör. Ein Stück wechselt frühestens nach 40 Sekunden, nur Rettung, Seeschlacht, Hafen, Menü und Spielende wechseln sofort. Tasten: M = Musik an/aus, + / − = Lautstärke (wird gemerkt). Tests und Bots spielen nie Ton.
+Die zehn Stücke ohne Gesang kommen aus `tools/make_music.py` (reines Python, jeder Lauf liefert dieselbe Musik, Mono 22 kHz, nahtlose Schleife; `--missing` erzeugt nur, was fehlt). Sie sind ungehört auf Plausibilität geprüft (Pegel, Schleifennaht, Klangverteilung), nicht nach Gehör. Zwischen den Stimmungen der See wird frühestens nach 40 Sekunden gewechselt; Kampf, Kraken, Rettung, Seeschlacht, Spuk, Hafen, Lager, Menü und Spielende wechseln sofort. Fehlt ein Stück, springt das nächste der Liste oder ein Ersatz ein. Die Endlosschleife wird beim Laden eingeschaltet (der Import setzt sie nicht von selbst). Tasten: M = Musik an/aus, + / − = Lautstärke (wird gemerkt). Tests und Bots spielen nie Ton.
 Noch ohne Tondatei: *Stürmische See* (nur der Text liegt vor).
 
 ### Soundeffekte
+
+Neu dazu: *hit_heavy* (dumpfer Unterschlag bei schweren Treffern), *deathblow* (Todesstoß: Schlag wie ein zufallendes Tor mit langem Nachhall), *slow_in* / *slow_out* (die Zeitlupe ist hörbar: fallendes Rauschen mit Herzschlag beim Eintritt, steigendes beim Austritt; als Hinweise im Beat, `BeatPlanner`), und eigene Klänge beim Halt an Ereignissen unterwegs: *whale* (Ruf und Blasen), *wisp* (schwebende Glasstimmen), *whirl* (kreisendes Wasser mit Sog), *ice* (knirschende Schollen, ein Riss); die übrigen nutzen vorhandene (`Encounters.ROUTE_SND`). Die alten Klänge bleiben Byte für Byte gleich.
 
 45 Klänge, von Hand synthetisiert (`tools/make_sfx.py`, reines Python, wiederholbar), in `assets/sfx/`. Gespielt von `scripts/sfx.gd` mit Zufallsvariation der Tonhöhe und Drosselung gleicher Klänge. Lautstärke je Klang in `Sfx.GAIN`. Neu: *cannon* (Kanonenschuss, in der Seeschlacht) und 18 Kampfgeräusche (Schwerthieb, Axt, Schildstoß, Bogen, Pfeiltreffer, Biss, Heilung, Harfe, Kriegslied, Fall, Totenklage, Schild, Kraken-Brüllen, Tentakel, Tinte; je Fertigkeit in `Sfx.SKILL_SND`, ausgelöst von der Kampfansicht). Die Klänge sind ungehört auf Plausibilität geprüft (Wellenform, Pegel, Dauer). Tests, Bots und Screenshots erzeugen nie Ton.
 
@@ -183,6 +200,7 @@ Noch ohne Tondatei: *Stürmische See* (nur der Text liegt vor).
 - **Mitte:** nur die letzten beiden Meldungen des Skalden.
 - **Links:** ein Feld nur, wenn es etwas zu entscheiden gibt: Vorschau der Fahrt (nur Strecke, Ankunft, Proviant, Rumpf, Gefahren, Warnungen), Beschreibung der Begegnung, der Gegner der Seeschlacht.
 - **Unten:** ein dunkles Band mit drei Reglergruppen (nur die Stellung steht auf dem Knopf, Vor- und Nachteil erscheinen beim Darüberfahren), der Schaltfläche „Auslaufen“, zwei kleinen Reitern „Schiff“ und „Crew“ und der Mannschaft. Begegnungs-, Hafen- und Schlachtkarten sind höher (bis zu sieben Karten).
+- **Deckkampf-Oberfläche:** Zustände als **Symbole** (9×9, `assets/status_icons.png`, `tools/make_status_icons.py`, `scripts/status_icons.gd`) statt Buchstaben unter der Kraftzahl: an der Schwelle, im Griff, geblendet, spannt sich (blinkt), betäubt, blutet, markiert, Schildwall, Kriegslied, und neu sichtbar: fordert heraus, Panik, Muskete leer. Die **Zugleiste** zeigt die Köpfe der Figuren (aus ihren Streifen; der Erste größer und golden eingefasst, unten ein Strich in der Farbe der Seite, oben rechts der wichtigste Zustand). Das **Fokusschild** mit Name und Fertigkeit steht über dem Kopf des Handelnden und folgt der Kamera (statt eines Banners oben rechts).
 - **Tooltips:** Fährt man mit der Maus über einen Wert, erklärt ein Kasten die Mechanik und rechnet sie mit den aktuellen Zahlen vor (`scripts/tips.gd`): Rumpf, Proviant, Beute, Pulver, Meile, Seegang und Etappe/Stufe/Thema in der Kopfzeile und über der Karte; jede Zeile der Vorschau (Meilen, Ankunft, Proviant, Rumpf, jede Gefahr wie „Nebel −8“ mit Grundschaden, Etappenhärte, Schutz der Regler und Folge, „Über Bord“, Besetzung, Erschöpfte); jeder Knoten der Seekarte; jede Begegnungskarte mit Kosten, Aussicht und der echten Beute samt Art; das Gegnerfeld der Seeschlacht (Beute bei Sieg). Der Steckbrief eines Mannes erklärt zusätzlich Kraft, Verzweiflung und seinen Platz. Mannschaft (C), Schiff und Werft (B), Segen bei Stufenaufstieg (Tasten 1–3), Gedenkstein (G).
 
 ## Bedienung
@@ -198,6 +216,8 @@ Noch ohne Tondatei: *Stürmische See* (nur der Text liegt vor).
 | Klick auf Mann, dann Mann / freien Platz | Plätze tauschen / Mann versetzen |
 | Mann über Bord: R / Z | Seil werfen / zurücklassen; anderen Mann anklicken = Retter wechseln |
 | C / B | Mannschaftsansicht / Schiff und Werft |
+| F | in einer Begegnung: Fokus ansagen oder zurücknehmen |
+| Klick auf ein Vorratssymbol (links unten) | Verband, Schnaps oder Teer einsetzen |
 | Werft: 1–3, R, P | Angebot kaufen, Rumpf reparieren, Pulver kaufen |
 | Esc | Auswahl aufheben, sonst Hauptmenü; nach dem Ende ins Hauptmenü |
 | H / F11 / M / + − / G / Strg+N | Hilfe, Vollbild, Ton, Lautstärke, Gedenkstein, neue Fahrt (zweimal) |

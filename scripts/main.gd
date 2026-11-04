@@ -45,6 +45,9 @@ var _shot_fight := 0  # Deckkampf: 1 Aufstellung, 2 Kampf, 3 Kampf mit gewählte
 var _shot_form := ""  # --shotform=draugr|raeuber|haendler|dorf|kraken: Ort des Deckkampfs bei --shotfight2/3
 var _shot_kraken := 0  # Deckkampf gegen den Kraken: 1 mit Griff und Tinte, 2 Körper offen und spannt sich (--shotkraken, --shotkraken2)
 var _shot_fx := 0  # Deckkampf mitten im Schuss (1, --shotfx), Hieb (2, --shotfx2) oder Musketenschuss (3, --shotfx3)
+var _shot_front := 99.0  # --front=X: die Sturmfront steht X Meilen hinter dem Schiff (Screenshot)
+var _shot_armfocus := false  # --armfocus: in der ersten Begegnung Fokus ansagen (Screenshot)
+var _shot_supplies := false  # --supplies: zwei von jedem Vorrat an Bord (Screenshots)
 var _shot_route := -1  # --shotroute=N: das Schiff fährt los und hält am Streckenereignis N (0 Treibgut ... 9 Fischschwarm)
 var _soak := 0  # --fightsoak=N: N Deckkämpfe nacheinander mit Anzeige und Regie spielen (Dauertest unter Xvfb), danach beenden
 var _soak_done := 0
@@ -97,7 +100,11 @@ func _ready() -> void:
 			_shot_swim = true
 		elif arg == "--shotenc":
 			_shot_enc = true
-		elif arg == "--shoprare" or arg == "--shotforge" or arg == "--shotgear" or arg == "--shotarmory":
+		elif arg == "--armfocus":
+			_shot_armfocus = true
+		elif arg == "--supplies":
+			_shot_supplies = true
+		elif arg == "--shoprare" or arg == "--shotforge" or arg == "--shotgear" or arg == "--shotarmory" or arg == "--shotkraemer":
 			_shot_shop = true
 			_shot_harbor = true
 			_shot_shop_mode = String(arg.substr(2)).replace("shop", "").replace("shot", "")
@@ -140,6 +147,8 @@ func _ready() -> void:
 			_shot_fx = int(arg.substr(arg.length() - 1)) if arg != "--shotfx" else 1
 		elif arg.begins_with("--shotroute="):
 			_shot_route = int(arg.substr(12))
+		elif arg.begins_with("--front="):
+			_shot_front = float(arg.substr(8))
 		elif arg.begins_with("--fightsoak="):
 			_soak = int(arg.substr(12))
 		elif arg == "--shotkill" or arg == "--shotcrit":
@@ -176,6 +185,7 @@ func _ready() -> void:
 	_voy.autosave = _persist
 	_voy.auto_combat = _bot != "" or (_persist and Settings.auto_combat)
 	_voy.max_stage = _max_stage if _max_stage > 0 else (6 if _bot != "" else 0)
+	_voy.difficulty = Settings.difficulty if _persist else 1  # Tests, Bots und Screenshots spielen auf „Sturm“
 	_voy.automat_bonus_on = _bot != "" or _shot_path == ""  # Freidrehs nach Siegen: im echten Spiel und bei Bots, nicht in Screenshots
 	if _memtest:
 		Persist.run_path = "user://shot_run.json"
@@ -322,6 +332,11 @@ func _ready() -> void:
 		for pm in _voy.fight_prep["party"]:
 			if pm.role == Roles.Id.MUSKET:
 				_hud._loadout_man = pm
+	if _shot_supplies:
+		_voy.supplies = {"verband": 2, "schnaps": 1, "teer": 2, "harpune": 1}
+	if _shot_front < 99.0:
+		_hud.hide_help()
+		_voy.front = _voy.ship_at() - _shot_front
 	if _shot_route >= 0:  # Screenshot: Halt mitten auf dem ersten Weg an einem Streckenereignis
 		_hud.hide_help()
 		var rto := int(_voy.node_at(0, 0)["links"][0])
@@ -515,6 +530,9 @@ func _process(delta: float) -> void:
 		_hud.toggle_memorial()
 	if _shot_path != "":
 		var in_harbor := _voy.phase == Voyage.Phase.ENCOUNTER and Encounters.is_harbor(_voy.encounter)
+		if _shot_armfocus and _voy.phase == Voyage.Phase.ENCOUNTER and not in_harbor and not _voy.focus_armed:
+			_shot_armfocus = false
+			_voy.toggle_focus()
 		if _shot_shop and in_harbor and not _voy.shop_open:
 			_voy.shop_open = true
 			_voy.loot = 600.0
@@ -531,6 +549,9 @@ func _process(delta: float) -> void:
 				var gm0 := _voy.forge_men()[0]
 				gm0.gear[0] = "speer@1"
 				gm0.gear[2] = "horn@2"
+			elif _shot_shop_mode == "kraemer":
+				_voy.werft_tab = 4
+				_voy.supplies = {"verband": 1, "teer": 2}
 			elif _shot_shop_mode == "armory":
 				_voy.werft_tab = 3
 				_voy.gear_shop = ["hammer@2", "mantel@1", "auge@3"]
@@ -710,6 +731,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_hud.toggle_crew()
 			KEY_B:
 				_hud.toggle_ship()
+			KEY_F:
+				_voy.toggle_focus()
 			KEY_N:
 				if event.ctrl_pressed:
 					_new_run()
@@ -749,6 +772,9 @@ func _setting_click(id: String) -> void:
 			Settings.save_all()
 		"tview":
 			Settings.fight_view = 1 if Settings.fight_view == 0 else 0  # Kampfansicht: voll (Zoom, Zeitlupe, Standbild) oder kurz (halbe Zeiten)
+			Settings.save_all()
+		"tdiff":
+			Settings.difficulty = (Settings.difficulty + 1) % 3  # gilt ab der nächsten neuen Fahrt
 			Settings.save_all()
 		"tshake":
 			Settings.shake = (Settings.shake + 2) % 3  # Wackeln: normal -> schwach -> aus
@@ -900,6 +926,12 @@ func _click(p: Vector2) -> void:
 			_hud.toggle_crew()
 		elif b == "sopen":
 			_hud.toggle_ship()
+		elif b.begins_with("su"):
+			var si := int(b.substr(2))
+			if si >= 0 and si < Supplies.ORDER.size():
+				_voy.use_supply(String(Supplies.ORDER[si]))
+		elif b == "fokus":
+			_voy.toggle_focus()
 		elif b.begins_with("d"):
 			_voy.set_dial(int(b.substr(1, 1)), int(b.substr(2, 1)))
 		elif b.begins_with("n"):
@@ -964,6 +996,7 @@ func _bot_step(delta: float) -> void:
 		var links := _voy.next_links()
 		if _bot == "smart":
 			_bot_rotate()
+			_bot_supplies()
 			_bot_camp()
 			_voy.select_route(_bot_route())
 			_bot_dials()
@@ -981,7 +1014,39 @@ func _bot_step(delta: float) -> void:
 		elif _bot == "smart" and Encounters.is_harbor(_voy.encounter) and _bot_hire():
 			pass  # er hat jemanden angeheuert und schaut beim nächsten Schritt weiter
 		else:
-			_voy.decide_encounter(_bot_encounter())
+			var bp := _bot_encounter()
+			if _bot == "smart":
+				_bot_focus(bp)
+			_voy.decide_encounter(bp)
+
+
+## Fokus: bei einer unsicheren Probe, solange genug übrig ist (und niemand kurz vor dem Kippen steht).
+func _bot_focus(pick: int) -> void:
+	var opts: Array = Encounters.DATA[_voy.encounter]["options"]
+	if pick < 0 or pick >= opts.size() or not Voyage.focus_applies(opts[pick]) or _voy.focus_total() < 3:
+		return
+	var o: Dictionary = opts[pick]
+	if (o.has("fight") and Encounters.chance(_voy, o) < 0.75) or not o.has("fight"):
+		if not _voy.focus_armed:
+			_voy.toggle_focus()
+
+
+## Vorräte auf See: Teer bei angeschlagenem Rumpf, Schnaps bei viel Verzweiflung, Verband für einen Erschöpften.
+func _bot_supplies() -> void:
+	if _voy.hull < _voy.hull_max() - 20.0:
+		_voy.use_supply("teer")
+	var st := 0.0
+	var n := 0
+	var weak := 100.0
+	for m in _voy.crew:
+		if m.state == CrewMember.State.ABOARD:
+			st += m.stress
+			n += 1
+			weak = minf(weak, m.kraft)
+	if n > 0 and st / float(n) > 40.0:
+		_voy.use_supply("schnaps")
+	if weak < 30.0:
+		_voy.use_supply("verband")
 
 
 ## Der kluge Bot lagert, wenn die Männer müde, mutlos oder der Rumpf angeschlagen ist und der Proviant es trägt.
@@ -1164,6 +1229,9 @@ func _bot_shop() -> void:
 				return
 	if _voy.cannons() > 0 and _voy.powder < 6 and _voy.buy_powder():
 		return
+	for sk in ["teer", "verband", "schnaps", "harpune"]:
+		if _voy.supply(sk) < 1 and _voy.loot - float(Supplies.price(_voy, sk)) >= 40.0 and _voy.buy_supply(sk):
+			return
 	_bot_shop_visit = _voy.encounters_done
 	_voy.close_shop()
 
@@ -1252,7 +1320,11 @@ func _bot_encounter() -> int:
 		Encounters.Id.WRACK:
 			pick = 0 if _voy.hull > 0.5 * _voy.hull_max() else 1
 		Encounters.Id.UNGEHEUER:
-			pick = 0 if s > 0.85 else (1 if _voy.proviant >= 8 else 2)
+			pick = 0 if s > 0.85 else (2 if _voy.proviant >= 8 else 3)
+			if _voy.supply("harpune") > 0 and s <= 0.85:
+				pick = 1  # mit der Harpune
+		Encounters.Id.WAL:
+			pick = 1 if _voy.supply("harpune") > 0 else (0 if (s > 0.8 and _voy.hull > 0.5 * _voy.hull_max()) else 2)
 		Encounters.Id.DORF:
 			pick = 0 if s > 0.75 else 1
 			if _voy.hull < _voy.hull_max() - 30.0 and _voy.loot >= 30.0:
@@ -1262,19 +1334,19 @@ func _bot_encounter() -> int:
 		Encounters.Id.TREIBGUT, Encounters.Id.FLASCHENPOST:
 			pick = 0
 		Encounters.Id.SCHIFFBRUECHIGER:
-			pick = 0 if _voy.proviant >= 6 else 2
+			pick = (1 if _voy.supply("verband") > 0 else 0) if _voy.proviant >= 6 else 3
 		Encounters.Id.TREIBEIS:
 			pick = 1 if _voy.proviant >= 10 else 0  # umfahren, solange der Proviant reicht, sonst rudern
+			if _voy.supply("teer") > 1:
+				pick = 2  # mit Teer sicher durch
 		Encounters.Id.ENTERHAKEN:
 			pick = 0 if s > 0.6 else 1
-		Encounters.Id.WAL:
-			pick = 0 if (s > 0.8 and _voy.hull > 0.5 * _voy.hull_max()) else 1
 		Encounters.Id.IRRLICHTER:
 			pick = 2
 		Encounters.Id.STRUDEL:
 			pick = 1 if _voy.loot >= 80.0 else 0
 		Encounters.Id.TOTENFLOSS:
-			pick = 0 if s > 0.7 else 1
+			pick = 0 if s > 0.7 else (1 if _voy.supply("teer") > 1 else 2)
 		Encounters.Id.FISCHSCHWARM:
 			pick = 0 if _voy.proviant < 20 else 1
 	var opts: Array = Encounters.DATA[_voy.encounter]["options"]

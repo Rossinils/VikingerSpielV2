@@ -142,8 +142,9 @@ func flash(col: Color, dur: float) -> void:
 	_flash_dur = dur
 
 
-func show_banner(skill_name: String, who: String, side: int, icon: String = "") -> void:
-	banner = {"name": skill_name, "who": who, "side": side, "t": 1.25, "icon": icon}
+## Fokusschild: f ist die handelnde Figur (das Schild steht über ihrem Kopf), ohne Figur oben rechts.
+func show_banner(skill_name: String, who: String, side: int, icon: String = "", f: Object = null) -> void:
+	banner = {"name": skill_name, "who": who, "side": side, "t": 1.25, "icon": icon, "f": f}
 
 
 func show_big(text: String, sub: String, col: Color, dur: float = 2.0) -> void:

@@ -13,6 +13,7 @@ static var auto_combat := false  # Kämpfe ohne Ansicht auflösen
 static var fight_view := 0  # Kampfansicht: 0 voll, 1 kurz
 static var shake := 2  # Wackeln und Blitze: 0 aus, 1 schwach, 2 normal
 static var stage_fx := 1  # Kampfbild: 1 voll, 0 schlicht
+static var difficulty := 1  # Schwierigkeit neuer Fahrten: 0 Seebär, 1 Sturm, 2 Ragnarök
 static var enabled := false  # nur im echten Spiel wird gespeichert
 
 
@@ -27,6 +28,7 @@ static func load_all() -> void:
 	fight_view = clampi(int(cfg.get_value("play", "fight_view", 0)), 0, 1)
 	shake = clampi(int(cfg.get_value("play", "shake", 2)), 0, 2)
 	stage_fx = clampi(int(cfg.get_value("play", "stage_fx", 1)), 0, 1)
+	difficulty = clampi(int(cfg.get_value("play", "difficulty", 1)), 0, 2)
 	Sfx.offset_db = sfx_db
 
 
@@ -42,6 +44,7 @@ static func save_all() -> void:
 	cfg.set_value("play", "fight_view", fight_view)
 	cfg.set_value("play", "shake", shake)
 	cfg.set_value("play", "stage_fx", stage_fx)
+	cfg.set_value("play", "difficulty", difficulty)
 	cfg.save(PATH)
 
 

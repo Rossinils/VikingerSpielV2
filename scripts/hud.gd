@@ -86,6 +86,58 @@ func _exit_tree() -> void:
 	slot_view = null
 
 
+static var _sup_tex: Texture2D = null
+
+
+## Ein Symbol aus assets/supply_icons.png (16×16): Vorräte in Supplies.ORDER, danach "fokus".
+func _supply_icon(key: String, pos: Vector2, tint: Color = Color.WHITE) -> void:
+	if _sup_tex == null and DisplayServer.get_name() != "headless" and ResourceLoader.exists("res://assets/supply_icons.png"):
+		_sup_tex = load("res://assets/supply_icons.png") as Texture2D
+	var col := Supplies.ORDER.find(key) if key != "fokus" else Supplies.ORDER.size()
+	if _sup_tex == null or col < 0:
+		draw_rect(Rect2(pos + Vector2(3, 3), Vector2(10, 10)), Color(GOLD, 0.6 * tint.a))
+		return
+	draw_texture_rect_region(_sup_tex, Rect2(pos, Vector2(16, 16)), Rect2(col * 16, 0, 16, 16), tint)
+
+
+## Vorräte links unten über dem Band (nur in der Planung): ein Klick setzt das Gut ein; daneben der Fokus.
+func _draw_supplies(mouse: Vector2) -> void:
+	if voy.phase != Voyage.Phase.PLAN or voy.camping or voy.ended:
+		return
+	var x := 6.0
+	var y := 203.0
+	for k in Supplies.ORDER.size():
+		var key := String(Supplies.ORDER[k])
+		var n := voy.supply(key)
+		var r := Rect2(x + k * 31.0, y, 29.0, 20.0)
+		var can := voy.can_use_supply(key)
+		var hover := can and r.has_point(mouse)
+		UiSkin.button(self, r, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if n > 0 else UiSkin.State.DISABLED))
+		_supply_icon(key, r.position + Vector2(2, 2), Color.WHITE if n > 0 else Color(1, 1, 1, 0.35))
+		_t(Vector2(r.position.x + 17.0, r.position.y + 15.0), str(n), (GOLD if can else PAPER) if n > 0 else DIM, 8, HORIZONTAL_ALIGNMENT_CENTER, 10.0)
+		if can:
+			_register(r, "su%d" % k)
+		_tip(r, Tips.supply(voy, key))
+	var fr := Rect2(x + 4.0 * 31.0 + 4.0, y, 29.0, 20.0)
+	_supply_icon("fokus", fr.position + Vector2(2, 2), Color.WHITE if voy.focus_total() > 0 else Color(1, 1, 1, 0.35))
+	_t(Vector2(fr.position.x + 17.0, fr.position.y + 15.0), str(voy.focus_total()), VIOLET, 8, HORIZONTAL_ALIGNMENT_CENTER, 10.0)
+	_tip(fr, Tips.focus(voy))
+
+
+## In einer Begegnung: Fokus ansagen (Taste F). Liegt unten im linken Kasten.
+func _draw_focus_toggle(r: Rect2, mouse: Vector2) -> void:
+	var have := voy.focus_total()
+	var on := voy.focus_armed
+	var hover := have > 0 and r.has_point(mouse)
+	UiSkin.button(self, r, UiSkin.State.SELECTED if on else (UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if have > 0 else UiSkin.State.DISABLED)))
+	_supply_icon("fokus", r.position + Vector2(2, 0), Color.WHITE if have > 0 else Color(1, 1, 1, 0.35))
+	var label := ("Fokus an" if on else "Fokus (F)") + "  · %d übrig" % have
+	_t(Vector2(r.position.x + 21.0, r.position.y + 12.0), label, VIOLET if on else (PAPER if have > 0 else DIM), 8, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 24.0)
+	if have > 0:
+		_register(r, "fokus")
+	_tip(r, Tips.focus(voy))
+
+
 func _make_font(names: Array, italic: bool) -> SystemFont:
 	var f := SystemFont.new()
 	f.font_names = PackedStringArray(names)
@@ -250,6 +302,7 @@ func _draw() -> void:
 	else:
 		_draw_dials()
 	_draw_go()
+	_draw_supplies(mouse)
 	_draw_lager_button(mouse)
 	_draw_crew_link(mouse)
 	_draw_cards(mouse)
@@ -589,6 +642,38 @@ func _brackets(p: Vector2, half: int, col: Color, thick: int) -> void:
 			draw_rect(Rect2(x2, y2, t, n), col)
 
 
+## Die Sturmfront auf der Karte: ein dunkles Band von unten bis zu ihrer Lage, oben eine gezackte Kante, die sich langsam regt.
+func _draw_storm_band() -> void:
+	var fy := CHART_TOP + (Voyage.MILES - voy.front) * CHART_STEP
+	var bottom := CHART_RECT.end.y - 3.0
+	var left := CHART_RECT.position.x + 3.0
+	var right := CHART_RECT.end.x - 3.0
+	if fy >= bottom - 1.0:
+		# noch unter dem Kartenrand: nur eine gestrichelte Kante unten (wie weit, steht in der Vorschau)
+		for xs in range(int(left), int(right), 4):
+			draw_rect(Rect2(xs, bottom - 1.0, 2, 1), Color(VIOLET, 0.6))
+		_tip(Rect2(left, bottom - 4.0, right - left, 4.0), Tips.storm(voy))
+		return
+	var top := maxf(fy, CHART_RECT.position.y + 3.0)
+	draw_rect(Rect2(left, top, right - left, bottom - top), Color(0.16, 0.1, 0.24, 0.42))
+	var phase := Time.get_ticks_msec() / 260
+	var x := left
+	var k := 0
+	while x < right:
+		var j := float(((k * 7 + phase) % 5) - 2)
+		var yy := roundf(fy + j * 0.8)
+		if yy > CHART_RECT.position.y + 3.0 and yy < bottom:
+			draw_rect(Rect2(x, yy, minf(3.0, right - x), 1), Color(VIOLET, 0.85))
+		x += 3.0
+		k += 1
+	# schräge Regenstriche im Band
+	var y0 := int(top) + 3
+	for yy2 in range(y0, int(bottom) - 2, 6):
+		for xx in range(int(left) + ((yy2 + phase) % 9), int(right) - 2, 11):
+			draw_rect(Rect2(xx, yy2, 1, 2), Color(0.62, 0.55, 0.8, 0.35))
+	_tip(Rect2(left, top, right - left, maxf(bottom - top, 8.0)), Tips.storm(voy))
+
+
 func _draw_chart(mouse: Vector2) -> void:
 	if UiSkin.atlas() != null:
 		UiSkin.spr(self, "chart", CHART_RECT.position)
@@ -605,6 +690,8 @@ func _draw_chart(mouse: Vector2) -> void:
 	var vis := voy.visible_cols()
 	var planning := voy.phase == Voyage.Phase.PLAN
 	var links_now: Array = voy.next_links() if (planning and voy.leg <= 0.0) else []
+
+	_draw_storm_band()
 
 	# Wege: gestrichelte Pixellinien in Tintenfarbe, besuchte Strecke durchgezogen in Gold
 	for c in Voyage.MILES:
@@ -814,6 +901,11 @@ func _preview_lines(d: Dictionary) -> Array:
 	var left := voy.proviant - int(p["proviant"])
 	var to_harbor := voy.harbor_distance()
 	out.append(["Proviant −%d, dann %d · Hafen %s" % [int(p["proviant"]), maxi(left, 0), Voyage.fmt(to_harbor)], RED if float(left) < to_harbor + 1.0 else PAPER, Tips.food(voy, p)])
+	if bool(p.get("storm", false)):
+		out.append(["Im Sturm! See +1, Verzweiflung +3", RED, Tips.storm(voy)])
+	else:
+		var gap := voy.front_gap()
+		out.append(["Sturmfront %s Meilen achteraus" % Voyage.fmt(gap), GREEN if gap > 2.0 else (GOLD if gap >= 1.0 else RED), Tips.storm(voy)])
 	var after := float(p["hull_after"])
 	var now := roundi(voy.hull)
 	if after <= 0.0:
@@ -867,7 +959,7 @@ func _draw_preview() -> void:
 		box.size.y = minf(box.size.y, 40.0 + plan_lines.size() * 10.5)  # so hoch wie der Inhalt
 	elif voy.battle.is_empty():
 		var text_h := _lore.get_multiline_string_size(String(Encounters.DATA[voy.encounter]["desc"]), HORIZONTAL_ALIGNMENT_LEFT, box.size.x - 12.0, 9).y
-		box.size.y = minf(box.size.y, 40.0 + text_h)
+		box.size.y = minf(box.size.y, 40.0 + text_h + (20.0 if _focus_here() else 0.0))
 	_panel(box)
 	var x := box.position.x + 9.0
 	var y := box.position.y + 17.0
@@ -883,6 +975,8 @@ func _draw_preview() -> void:
 		var desc := String(def["desc"])
 		draw_multiline_string_outline(_lore, Vector2(x, y + 14.0), desc, HORIZONTAL_ALIGNMENT_LEFT, w, 9, 9, 3, INK)
 		draw_multiline_string(_lore, Vector2(x, y + 14.0), desc, HORIZONTAL_ALIGNMENT_LEFT, w, 9, 9, PAPER)
+		if _focus_here():
+			_draw_focus_toggle(Rect2(box.position.x + 6.0, box.end.y - 22.0, box.size.x - 12.0, 16.0), get_local_mouse_position())
 		return
 	var preview := not _hover_dial.is_empty() and (d["dials"] as Array) != (voy.maneuver()["dials"] as Array)
 	_t(Vector2(x, y), String(d["name"]) + ("  (Vorschau)" if preview else ""), GOLD, 10)
@@ -894,6 +988,16 @@ func _draw_preview() -> void:
 		_t(Vector2(x, y), String(line[0]), line[1], 8)
 		if line.size() > 2:
 			_tip(Rect2(x - 3.0, y - 8.0, w + 6.0, 10.5), line[2])
+
+
+## Gibt es in dieser Begegnung eine Probe, bei der Fokus greift?
+func _focus_here() -> bool:
+	if voy.encounter < 0 or voy.phase != Voyage.Phase.ENCOUNTER or Encounters.is_harbor(voy.encounter) or Encounters.is_battle(voy.encounter):
+		return false
+	for o in Encounters.DATA[voy.encounter]["options"]:
+		if Voyage.focus_applies(o):
+			return true
+	return false
 
 
 ## Seeschlacht links: Zustand des Gegners und sein angekündigter nächster Zug.
@@ -1067,8 +1171,8 @@ func _draw_encounter_cards() -> void:
 		for k in lines.size():
 			var col := PAPER
 			var text := String(lines[k])
-			if k == 0 and opt.has("fight"):
-				var ch := Encounters.chance(voy, opt)
+			if text.begins_with("Aussicht") and opt.has("fight"):
+				var ch := Encounters.chance(voy, opt, voy.focus_armed and Voyage.focus_applies(opt))
 				col = GREEN if ch >= 0.7 else (GOLD if ch >= 0.45 else RED)
 			elif text.begins_with("Kosten") or text.begins_with("Verlust"):
 				col = RED if k > 0 else GOLD
@@ -1079,6 +1183,8 @@ func _draw_encounter_cards() -> void:
 			_t(r.position + Vector2(7, 30 + k * 11), text, col, 8, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 14.0)
 		if not ok:
 			_t(r.position + Vector2(7, r.size.y - 6), "nicht möglich", RED, 8)
+		elif voy.focus_armed and Voyage.focus_applies(opt):
+			_t(r.position + Vector2(7, r.size.y - 6), "Fokus: " + ("+15 %" if opt.has("fight") else "zweiter Wurf"), VIOLET, 8)
 		_t(r.position + Vector2(r.size.x - 12, r.size.y - 6), str(i + 1), DIM, 8)
 		_tip(r, Tips.option(voy, voy.encounter, opt))
 		if ok and active:
@@ -1186,6 +1292,12 @@ func _draw_cards(mouse: Vector2) -> void:
 		_t(r.position + Vector2(5, 25), status, scol, 8)
 		if not dead and m.state == CrewMember.State.ABOARD and m.fatigue_stage() > 0:  # z / zz / zzz: müde, erschöpft, am Ende
 			_t(Vector2(r.end.x - 24.0, r.position.y + 25.0), "z".repeat(m.fatigue_stage()), _kraft_col(m.kraft), 8, HORIZONTAL_ALIGNMENT_RIGHT, 20.0)
+		if not dead and m.state == CrewMember.State.ABOARD and m.fokus > 0:
+			for fk in m.fokus:  # Fokuspunkte: kleine violette Rauten rechts unter dem Bindungszeichen
+				var fx := r.end.x - 7.0 - float(fk) * 5.0
+				var fy := r.position.y + 16.0
+				draw_rect(Rect2(fx, fy - 1.0, 1, 3), Color(VIOLET, 0.95))
+				draw_rect(Rect2(fx - 1.0, fy, 3, 1), Color(VIOLET, 0.95))
 		if not dead and m.state == CrewMember.State.ABOARD:
 			var bw := r.size.x - 10.0
 			var kcol := _kraft_col(m.kraft)
@@ -1309,6 +1421,7 @@ func _draw_settings(mouse: Vector2) -> void:
 	rows.append(["Kampfbild", "voll" if Settings.stage_fx != 0 else "schlicht", "tstage", "tstage"])
 	rows.append(["Kampfansicht", "voll" if Settings.fight_view == 0 else "kurz", "tview", "tview"])
 	rows.append(["Wackeln", ["aus", "schwach", "normal"][clampi(Settings.shake, 0, 2)], "tshake", "tshake"])
+	rows.append(["Schwierigkeit (neue Fahrt)", String(Voyage.DIFFICULTY[clampi(Settings.difficulty, 0, 2)]["name"]), "tdiff", "tdiff"])
 	var step := 24.0 if rows.size() <= 7 else 19.0  # mit allen Zeilen rückt es enger zusammen, damit „Zurück“ noch auf den Schirm passt
 	var y0 := 98.0 if rows.size() <= 7 else 86.0
 	for i in rows.size():
@@ -1365,22 +1478,22 @@ func _draw_ship_view(mouse: Vector2) -> void:
 	var panel := Rect2(14, 8, 452, 304)
 	UiSkin.panel(self, panel, UiSkin.BRONZE, 2, "tile_stone")
 	var tab := voy.werft_tab if shopping else 0
-	var titles := ["Werft", "Schmiede", "Ausrüstung", "Rüstkammer"]
-	_t(Vector2(24, 34), String(titles[tab]) if shopping else "Das Schiff", GOLD, 16, HORIZONTAL_ALIGNMENT_LEFT, 96.0 if shopping else -1.0, _lore)
+	var titles := ["Werft", "Schmiede", "Ausrüstung", "Rüstkammer", "Krämer"]
+	_t(Vector2(24, 34), String(titles[tab]) if shopping else "Das Schiff", GOLD, 14 if shopping else 16, HORIZONTAL_ALIGNMENT_LEFT, 82.0 if shopping else -1.0, _lore)
 	_t(Vector2(0, 49), "Beute %d" % roundi(voy.loot), GOLD, 9, HORIZONTAL_ALIGNMENT_RIGHT, 456.0)
 	if voy.pfand > 0 and tab == 0:  # die Pfandflasche (legendär) hat keinen Platz am Schiff, aber hier einen Hinweis (unten rechts: oben liegt der Hinweistext)
 		ItemIcons.draw_inner(self, "pfand", Vector2(262, 292), 3)
 		_t(Vector2(282, 304), "Pfandflasche ×%d" % voy.pfand, Items.pfand_color(), 8, HORIZONTAL_ALIGNMENT_LEFT, 120.0)
 		_tip(Rect2(260, 290, 124, 20), Tips.pfand(voy))
 	UiSkin.rule(self, 24.0, 456.0, 39.0, UiSkin.BRONZE, false)
-	var close := Rect2(394, 17, 60, 16)
+	var close := Rect2(404, 17, 52, 16) if shopping else Rect2(394, 17, 60, 16)
 	_small_button(close, "Schließen", close.has_point(mouse))
 	_register(close, "ix")
 	if shopping:
-		var labels := ["Schiff", "Schmiede", "Ausrüstung", "Rüstkammer"]
-		var widths := [50.0, 62.0, 70.0, 72.0]
-		var tx := 124.0
-		for k in 4:
+		var labels := ["Schiff", "Schmiede", "Ausrüstung", "Rüstkammer", "Krämer"]
+		var widths := [44.0, 54.0, 62.0, 64.0, 48.0]
+		var tx := 112.0
+		for k in 5:
 			var tr := Rect2(tx, 17, float(widths[k]), 16)
 			UiSkin.button(self, tr, UiSkin.State.SELECTED if k == tab else (UiSkin.State.HOVER if tr.has_point(mouse) else UiSkin.State.NORMAL))
 			_t(Vector2(tr.position.x, tr.position.y + 12), String(labels[k]), PAPER, 8, HORIZONTAL_ALIGNMENT_CENTER, tr.size.x)
@@ -1399,6 +1512,11 @@ func _draw_ship_view(mouse: Vector2) -> void:
 	if tab == 3:
 		_t(Vector2(24, 49), "Hier kaufst du Ausrüstung, und was im Vorrat liegt, verkaufst du für die Hälfte.", DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 330.0)
 		_draw_armory(mouse)
+		_draw_tip(mouse)
+		return
+	if tab == 4:
+		_t(Vector2(24, 49), "Vorräte für unterwegs. Auf See setzt du sie links unten ein, bei manchen Ereignissen öffnen sie eine eigene Karte.", DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 420.0)
+		_draw_kraemer(mouse)
 		_draw_tip(mouse)
 		return
 	var hint := "Ein gekaufter Gegenstand ersetzt, was auf seinem Platz sitzt. Die Farbe zeigt die Seltenheit." if shopping else "Gegenstände kaufst du im Hafen in der Werft (B schließt)."
@@ -1691,13 +1809,43 @@ func _draw_forge(mouse: Vector2) -> void:
 		_tip(rr3, Tips.forge_skill(cur, sid))
 
 
+## Der Krämer: vier Vorräte, je mit Bestand, Höchstmenge und Preis.
+func _draw_kraemer(mouse: Vector2) -> void:
+	for k in Supplies.ORDER.size():
+		var key := String(Supplies.ORDER[k])
+		var d: Dictionary = Supplies.DATA[key]
+		var r := Rect2(24, 58 + k * 61, 432, 57)
+		var can := voy.can_buy_supply(key)
+		var hover := can and r.has_point(mouse)
+		_card(r, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if can else UiSkin.State.DISABLED))
+		_empty_plate(Rect2(r.position + Vector2(6, 6), Vector2(20, 20)))
+		_supply_icon(key, r.position + Vector2(8, 8))
+		_t(r.position + Vector2(34, 15), String(d["name"]), GOLD if can else DIM, 10)
+		_t(r.position + Vector2(34, 27), String(d["short"]), PAPER if can else DIM, 8)
+		var desc := String(d["desc"])
+		draw_multiline_string(_ui, r.position + Vector2(34, 39), desc, HORIZONTAL_ALIGNMENT_LEFT, 320.0, 7, 2, DIM)
+		var have := voy.supply(key)
+		var full := have >= Supplies.cap(key)
+		_t(r.position + Vector2(0, 15), "%d" % Supplies.price(voy, key), GOLD if (can or full) else RED, 10, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 8.0)
+		_t(r.position + Vector2(0, 29), "an Bord %d / %d" % [have, Supplies.cap(key)], GREEN if full else PAPER, 8, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 8.0)
+		if full:
+			_t(r.position + Vector2(0, 42), "voll", DIM, 8, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 8.0)
+		if can:
+			_register(r, "gk%d" % k)
+		_tip(r, Tips.supply(voy, key))
+
+
 ## Klicks in der Schmiede (Reiter, Mann wählen, kaufen).
 func forge_click(id: String) -> void:
 	if voy == null or not voy.shop_open:
 		return
 	var cur := _forge_current()
 	if id.begins_with("gt"):
-		voy.werft_tab = clampi(int(id.substr(2)), 0, 3)
+		voy.werft_tab = clampi(int(id.substr(2)), 0, 4)
+	elif id.begins_with("gk"):
+		var sk := int(id.substr(2))
+		if sk >= 0 and sk < Supplies.ORDER.size():
+			voy.buy_supply(String(Supplies.ORDER[sk]))
 	elif id == "gauto":
 		voy.auto_equip()
 	elif id.begins_with("gb"):
@@ -2020,27 +2168,69 @@ func _fig_row(f: Combat.Fighter) -> int:
 	return int(Foes.ROW.get(f.kind, 4))
 
 
-func _status_text(f: Combat.Fighter) -> String:
-	var s := ""
-	if f.door and f.side == 0:
-		s += "!"
-	if f.held_by != null and not f.held_by.gone:
-		s += "G"
-	if f.blind > 0:
-		s += "T"
-	if f.charge:
-		s += "Z"
-	if f.stun > 0:
-		s += "B"
-	if f.bleed_turns > 0:
-		s += "b"
-	if f.mark > 0:
-		s += "M"
-	if f.guard > 0:
-		s += "S"
-	if f.buff > 0:
-		s += "+"
-	return s
+## Fokusschild: Name und Fertigkeit über dem Kopf des Handelnden (folgt der Kamera). Ohne Figur oben rechts wie früher.
+func _draw_focus_plaque(b: Dictionary) -> void:
+	var al := clampf(float(b["t"]) / 0.3, 0.0, 1.0)
+	var who := String(b["who"])
+	var nm := String(b["name"])
+	var w := clampf(_ui.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 9).x, _ui.get_string_size(who, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x, 160.0) + 28.0
+	var r := Rect2(236, 4, w, 24)
+	var f: Combat.Fighter = b.get("f", null)
+	var tip_x := -1.0
+	if f != null:
+		var head_y := FIGHT_FEET - (92.0 if FigArt.rig else 100.0)
+		if _is_big(f):
+			head_y = FIGHT_FEET - 150.0
+		var p := _stage_xf * Vector2(_fig_x(f), head_y)
+		tip_x = roundf(p.x)
+		r.position = Vector2(roundf(clampf(p.x - w * 0.5, 4.0, 476.0 - w)), roundf(clampf(p.y - 28.0, 50.0, 140.0)))
+	var edge := Color(GOLD if int(b["side"]) == 0 else RED, al)
+	draw_rect(r, Color(INK, 0.9 * al))
+	draw_rect(r, edge, false, 1.0)
+	draw_rect(Rect2(r.position.x + 1, r.position.y + 1, r.size.x - 2, 1), Color(edge, 0.35 * al))
+	if tip_x >= 0.0:
+		# kleine Spitze zum Kopf hin
+		var tx2 := clampf(tip_x, r.position.x + 6.0, r.end.x - 6.0)
+		for k in 3:
+			draw_rect(Rect2(tx2 - 2.0 + float(k), r.end.y + float(k), 5.0 - 2.0 * float(k), 1.0), Color(edge, al) if k == 2 else Color(INK, 0.9 * al))
+		draw_rect(Rect2(tx2 - 3.0, r.end.y - 1.0, 7.0, 1.0), Color(INK, 0.9 * al))
+	SkillIcons.draw(self, String(b.get("icon", "")), Vector2(r.position.x + 4, r.position.y + 4), Color(1, 1, 1, al))
+	_t(Vector2(r.position.x + 22, r.position.y + 10), who, Color(DIM, al), 7, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 24.0)
+	_t(Vector2(r.position.x + 22, r.position.y + 20), nm, Color(GOLD if int(b["side"]) == 0 else PAPER, al), 9, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 24.0)
+
+
+## Ein Kästchen der Zugleiste: der Kopf der Figur (aus ihrem Streifen), unten ein Strich in der Farbe der Seite, rechts oben
+## das wichtigste Zustandssymbol. Der Erste ist größer und golden eingefasst.
+func _draw_turn_box(u: Combat.Fighter, ur: Rect2, first: bool) -> void:
+	draw_rect(ur, INK)
+	draw_rect(ur.grow(-1), Color("1d2738") if u.side == 0 else Color("3a1d1f"))
+	var id := FigArt.id_of(u)
+	var tex := FigArt.texture(id) if (FigArt.rig and FigArt.has(id)) else null
+	var col := FigArt.column(id, "idle_0") if tex != null else -1
+	if tex != null and col >= 0:
+		var hd := FigArt.anchor(id, "idle_0", "head")
+		var ax := float(FigAtlas.ANCHOR_X.get(id, FigAtlas.ANCHOR.x))
+		var hx := ax + hd.x
+		var hy := float(FigAtlas.ANCHOR.y) - hd.y
+		var inner := ur.grow(-1)
+		inner.size.y -= 2.0
+		var src := Rect2(float(col) * float(FigAtlas.CELL.x) + hx - inner.size.x * 0.5, hy - inner.size.y * 0.5 + 2.0, inner.size.x, inner.size.y)
+		if u.side == 1:
+			# Gegner blicken nach links: das Bild gespiegelt zeichnen
+			draw_set_transform(Vector2(inner.position.x * 2.0 + inner.size.x, 0.0), 0.0, Vector2(-1.0, 1.0))
+			draw_texture_rect_region(tex, inner, src)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		else:
+			draw_texture_rect_region(tex, inner, src)
+	else:
+		var short := u.name if u.side == 0 else String(Foes.info(u.kind).get("short", u.name))
+		_t(Vector2(ur.position.x, ur.position.y + ur.size.y * 0.5 + 4.0), short.substr(0, 2), PAPER, 8, HORIZONTAL_ALIGNMENT_CENTER, ur.size.x)
+	draw_rect(Rect2(ur.position.x + 1.0, ur.end.y - 3.0, ur.size.x - 2.0, 2.0), Color("5b8fd0") if u.side == 0 else RED)
+	var icons := StatusIcons.of(u)
+	if not icons.is_empty():
+		StatusIcons.draw(self, String(icons[0]), Vector2(ur.end.x - 8.0, ur.position.y - 2.0))
+	if first:
+		draw_rect(ur, GOLD, false, 1.0)
 
 
 ## Beginn eines Kampfes im Bild: alles Alte zurücksetzen, die Regie bauen (kopflos gibt es keine).
@@ -2266,7 +2456,7 @@ func _on_cue(kind: String, d: Dictionary) -> void:
 					_fx_flight(who, tgts[i], sk, release, float(contacts[i]) / 1000.0, bool(d.get("miss", false)))
 			var sname := _skill_label(sk)
 			if sname != "":
-				_fx.show_banner(sname, who.name if who.side == 0 else String(Foes.info(who.kind).get("short", who.name)), who.side, Roles.icon_of(sk))
+				_fx.show_banner(sname, who.name if who.side == 0 else String(Foes.info(who.kind).get("short", who.name)), who.side, Roles.icon_of(sk), who)
 		"impact":
 			var tgt: Combat.Fighter = d["tgt"]
 			var sk2 := String(d["sk"])
@@ -2276,8 +2466,10 @@ func _on_cue(kind: String, d: Dictionary) -> void:
 				Sfx.play(Sfx.skill_sound(sk2, "hit"), 2.0 if crit else 0.0)
 				if crit:
 					Sfx.play("clash", -6.0)
-				if lv >= FightLevel.HEAVY:
-					Sfx.play("bash", -6.0 + (6.0 if crit else 0.0))  # schwerer Treffer: dumpfe Schicht darunter
+				if lv >= FightLevel.KILL:
+					Sfx.play("deathblow")  # Todesstoß: ein Schlag wie ein zufallendes Tor, langer Nachhall
+				elif lv >= FightLevel.HEAVY:
+					Sfx.play("hit_heavy", -2.0 + (3.0 if crit else 0.0))  # schwerer Treffer: dumpfe Schicht darunter
 			_fx_impact(d["att"], tgt, sk2, lv, crit, int(d["n"]))
 		"miss":
 			Sfx.play("whiff")
@@ -2488,10 +2680,18 @@ func _draw_plate(c: Combat, v: FightViews.FigView, valid: bool, xf: Transform2D)
 	if f.side == 0 and f.man != null:
 		UiSkin.mini_bar(self, cx - 19, FIGHT_FEET + 24, 38, clampf(f.man.stress, 0.0, 100.0) / 100.0, VIOLET if f.man.stress < 70.0 else RED)
 	var info := "%d" % maxi(roundi(v.shown_hp), 0)
-	var stext := _status_text(f)
-	if stext != "":
-		info += "  " + stext
-	_t(Vector2(cx - 26, FIGHT_FEET + 36), info, pc if stext == "" else GOLD, 7, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
+	var icons := StatusIcons.of(f)
+	if icons.is_empty():
+		_t(Vector2(cx - 26, FIGHT_FEET + 36), info, pc, 7, HORIZONTAL_ALIGNMENT_CENTER, 52.0)
+	else:
+		# Kraftzahl links, dahinter die Zustandssymbole (9×9), die ganze Gruppe mittig unter der Figur
+		var num_w := 14.0
+		var row_w := float(icons.size()) * 10.0 - 1.0
+		var x0 := roundf(cx - (num_w + 3.0 + row_w) * 0.5)
+		_t(Vector2(x0, FIGHT_FEET + 36), info, pc, 7, HORIZONTAL_ALIGNMENT_RIGHT, num_w)
+		for k in icons.size():
+			var blink := String(icons[k]) == "quetschen" and int(_clock * 3.0) % 2 == 0  # Zerquetschen droht: das Symbol blinkt
+			StatusIcons.draw(self, String(icons[k]), Vector2(x0 + num_w + 3.0 + float(k) * 10.0, FIGHT_FEET + 28), Color(1.6, 1.6, 1.6) if blink else Color(1, 1, 1, dim))
 	if f.side == 1 and f.guarded:
 		_t(Vector2(cx - 38, FIGHT_FEET + 46), "geschützt" if c._tentacles() > 0 else "offen!", DIM if c._tentacles() > 0 else GREEN, 7, HORIZONTAL_ALIGNMENT_CENTER, 76.0)
 	_tip(rect, Tips.fighter(c, f, _fight_skill if valid else ""))
@@ -2521,13 +2721,7 @@ func _draw_fight_texts() -> void:
 	if fl.a > 0.0:
 		draw_rect(Rect2(0, 0, Waves.VIEW_W, FightStage.STAGE_H), fl)
 	if not _fx.banner.is_empty():
-		var b := _fx.banner
-		var al := clampf(float(b["t"]) / 0.3, 0.0, 1.0)
-		var r := Rect2(236, 4, 172, 18)
-		draw_rect(r, Color(INK, 0.88 * al))
-		draw_rect(r, Color(GOLD if int(b["side"]) == 0 else RED, al), false, 1.0)
-		SkillIcons.draw(self, String(b.get("icon", "")), Vector2(r.position.x + 1, r.position.y + 1), Color(1, 1, 1, al))
-		_t(Vector2(r.position.x + 18, r.position.y + 13), "%s: %s" % [b["who"], b["name"]], Color(PAPER, al), 9, HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 20.0)
+		_draw_focus_plaque(_fx.banner)
 	if not _fx.big.is_empty():
 		var g := _fx.big
 		var el := 1.0 - float(g["t"]) / float(g["dur"])
@@ -2658,14 +2852,13 @@ func _draw_combat_view(mouse: Vector2) -> void:
 	_t(Vector2(0, 18), "Runde %d" % c.round_no, PAPER, 9, HORIZONTAL_ALIGNMENT_RIGHT, 466.0)
 	# Zugleiste: wer als Nächstes dran ist
 	var up := c.upcoming(10)
+	var tx := 14.0
 	for i in up.size():
 		var u := up[i]
-		var ur := Rect2(14.0 + float(i) * 22.0, 26.0, 20.0, 14.0)
-		draw_rect(ur, INK)
-		draw_rect(ur.grow(-1), Color("2a3a55") if u.side == 0 else Color("5b2a2a"))
-		if i == 0:
-			draw_rect(ur, GOLD, false, 1.0)
-		_t(Vector2(ur.position.x, ur.position.y + 11), u.name.substr(0, 1), PAPER, 9, HORIZONTAL_ALIGNMENT_CENTER, ur.size.x)
+		var big_box := i == 0
+		var ur := Rect2(tx, 23.0 if big_box else 25.0, 22.0 if big_box else 18.0, 24.0 if big_box else 20.0)
+		tx += ur.size.x + 2.0
+		_draw_turn_box(u, ur, big_box)
 		_tip(ur, Tips.fighter(c, u, ""))
 	# Meldungen
 	var jl := c.journal

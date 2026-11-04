@@ -35,6 +35,10 @@ const PLACE := {
 ## gleiche Zellgröße und gleicher Anker; sie treiben neben dem Schiff und ziehen beim Weiterfahren nach links davon.
 const ROUTE_CELL0 := 100
 const ROUTE_PLACE := {"x": 96.0, "dy": 3.0}  # links neben dem Heck: rechts liegt die Seekarte darüber
+## Zwei Bilder je Ereignis (Bild 1 liegt ROUTE_ROWS Zeilen tiefer); hier die Wechsel je Sekunde: Wal taucht langsam, Irrlichter flackern,
+## der Strudel dreht, Fische springen. Fehlt eine Art, bleibt Bild 0.
+const ROUTE_ROWS := 3
+const ROUTE_ANIM := {5: 0.8, 6: 3.0, 7: 4.0, 9: 2.2}
 ## x der drei Tentakel (vor dem Schiff)
 const TENT_X := [196.0, 286.0, 332.0]
 const TENT_VARIANT := [0, 1, 2]
@@ -155,7 +159,10 @@ func _draw() -> void:
 		var rx := float(ROUTE_PLACE["x"])
 		var roff := _slide_offset()
 		var ry := roundf(back_y + float(ROUTE_PLACE["dy"]) + Waves.height(rx, 0) * 0.5) + roff.y
-		var rsrc := Rect2(Vector2((ri % COLS) * CELL.x, (ri / COLS) * CELL.y), Vector2(CELL))
+		var rframe := 0
+		if ROUTE_ANIM.has(ri) and _tex_route.get_height() >= CELL.y * ROUTE_ROWS * 2:
+			rframe = int(floorf(Waves.time * float(ROUTE_ANIM[ri]))) % 2
+		var rsrc := Rect2(Vector2((ri % COLS) * CELL.x, (ri / COLS + rframe * ROUTE_ROWS) * CELL.y), Vector2(CELL))
 		draw_texture_rect_region(_tex_route, Rect2(Vector2(roundf(rx) + roff.x, ry) - Vector2(ANCHOR), Vector2(CELL)), rsrc)
 		return
 	var p: Dictionary = PLACE[_cell]

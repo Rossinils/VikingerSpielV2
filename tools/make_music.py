@@ -2,7 +2,8 @@
 
 Aufruf:
     python tools/make_music.py              -> alle Stuecke
-    python tools/make_music.py morgenwind   -> nur dieses Stueck (morgenwind, sturmwache, eisen_und_salz, taverne)
+    python tools/make_music.py morgenwind   -> nur dieses Stueck (Namen: PIECES unten)
+    python tools/make_music.py --missing    -> nur die Stuecke, die in Musik/Hintergrund noch fehlen
 
 Mono, 22,05 kHz, 16 Bit. Die Stuecke sind als Endlosschleife gedacht: der Nachhall am Ende wird auf den
 Anfang gelegt, so dass der Uebergang nicht knackt. Der Zufall ist festgelegt (Seed je Stueck), jeder Lauf
@@ -367,9 +368,256 @@ def taverne():
     finish(buf, tail, "taverne")
 
 
-PIECES = {"morgenwind": morgenwind, "sturmwache": sturmwache, "eisen_und_salz": eisen_und_salz, "taverne": taverne}
+def crackle(buf, dur_s, density=6.0, gain=0.05):
+    """Knistern (Feuer, Holz): kurze Schellenklicks an zufaelligen Stellen."""
+    k = int(dur_s * density)
+    for _ in range(k):
+        add(buf, random.randrange(0, max(len(buf) - n(0.1), 1)), shaker(random.uniform(0.02, 0.05)), gain * random.uniform(0.4, 1.0))
+
+
+def schildwall():
+    """Deckkampf: D-Moll, 138 Schlaege. Trommelwand, galoppierender Bass, Streicherstakkato, Hornrufe, Fiedel."""
+    random.seed(51)
+    bpm = 138.0
+    beat = 60.0 / bpm
+    bar = 4 * beat
+    bars = 40
+    tail = n(2.5)
+    buf = [0.0] * (n(bars * bar) + tail)
+    roots = [38, 34, 36, 38, 38, 34, 43, 33]  # Dm Bb C Dm | Dm Bb Gm A
+    chords = {38: [50, 53, 57], 34: [46, 50, 53], 36: [48, 52, 55], 43: [43, 46, 50], 33: [45, 49, 52]}
+    scale = scale_notes(2, [0, 2, 3, 5, 7, 8, 10], 62, 81)  # D aeolisch
+    motif = []
+    prev = 69
+    for e in range(8):
+        prev = nearest_step(prev, scale, 4)
+        motif.append(prev)
+    add(buf, 0, drone(mtof(26), bars * bar + 2.0), 0.55)
+    for b in range(bars):
+        t0 = n(b * bar)
+        root = roots[b % 8]
+        quiet = 32 <= b < 36  # Atempause: nur Trommeln und Grundton, dann wieder alles
+        for k in range(4):
+            for pos, g in ((0.0, 1.0), (0.5, 0.6), (0.75, 0.6)):  # Galopp: Achtel und zwei Sechzehntel
+                add(buf, t0 + n((k + pos) * beat), pluck(mtof(root), beat * 0.35, 0.993, 0.75), 0.36 * g)
+        add(buf, t0, drum("low"), 0.7)
+        add(buf, t0 + n(2 * beat), drum("low"), 0.6)
+        add(buf, t0 + n(1 * beat), drum("mid"), 0.5)
+        add(buf, t0 + n(3 * beat), drum("mid"), 0.5)
+        if b >= 8:
+            for k in range(4):
+                add(buf, t0 + n(k * beat), drum("stomp"), 0.25)
+            add(buf, t0 + n(3.5 * beat), drum("high"), 0.35)
+        for e in range(8):
+            add(buf, t0 + n(e * beat / 2.0), shaker(), 0.05)
+        if quiet:
+            continue
+        if b >= 4:
+            for k in range(4):
+                for m in chords[root]:
+                    add(buf, t0 + n((k + 0.5) * beat), bow(mtof(m + 12), beat * 0.25, 0.01, 0.06, 2200.0), 0.07)
+        if b % 4 == 0:
+            add(buf, t0, horn(mtof(root + 12), beat * 1.6, 0.04, 0.3, 950.0), 0.22)
+            add(buf, t0 + n(2 * beat), horn(mtof(root + 19), beat * 1.8, 0.04, 0.4, 950.0), 0.2)
+        if 16 <= b < 32 or b >= 36:
+            for e, m in enumerate(motif):
+                if e % 2 == 0 or random.random() < 0.5:
+                    mm = m + (2 if b % 8 in (2, 3) else 0)
+                    add(buf, t0 + n(e * beat / 2.0), bow(mtof(mm), beat * 0.45, 0.02, 0.08, 2800.0), 0.2)
+        if b % 8 == 7:
+            for k in range(4):
+                add(buf, t0 + n((2 + k * 0.5) * beat), drum("high"), 0.45)
+    finish(buf, tail, "schildwall")
+
+
+def blutige_planken():
+    """Deckkampf: A phrygisch im schnellen 6/8. Toms, Quintbass, Fiedelreigen, Schellen."""
+    random.seed(61)
+    eighth = 0.135
+    bar = 6 * eighth
+    bars = 72
+    tail = n(2.0)
+    buf = [0.0] * (n(bars * bar) + tail)
+    scale = scale_notes(9, [0, 1, 3, 5, 7, 8, 10], 64, 84)  # A phrygisch
+    roots = [45, 45, 46, 45, 43, 43, 46, 40]  # A A Bb A G G Bb E
+    phrases = []
+    for _ in range(3):
+        prev = 76
+        ph = []
+        for e in range(12):
+            if e % 3 != 1 or random.random() < 0.6:
+                prev = nearest_step(prev, scale, 4)
+                ph.append((e, prev))
+        phrases.append(ph)
+    add(buf, 0, drone(mtof(33), bars * bar + 2.0), 0.5)
+    add(buf, 0, drone(mtof(40), bars * bar + 2.0), 0.25)
+    for b in range(bars):
+        t0 = n(b * bar)
+        root = roots[(b // 2) % 8]
+        add(buf, t0, pluck(mtof(root - 12), eighth * 2.5, 0.995, 0.6), 0.5)
+        add(buf, t0 + n(3 * eighth), pluck(mtof(root - 5), eighth * 2.5, 0.995, 0.6), 0.4)
+        add(buf, t0, drum("low"), 0.65)
+        add(buf, t0 + n(3 * eighth), drum("mid"), 0.5)
+        if b % 2 == 1:
+            add(buf, t0 + n(5 * eighth), drum("high"), 0.35)
+        for e in range(6):
+            add(buf, t0 + n(e * eighth), shaker(0.06), 0.06 if e % 3 else 0.1)
+        if b >= 8 and not (48 <= b < 52):
+            ph = phrases[(b // 2) % 3]
+            half = b % 2
+            for e, m in ph:
+                if e // 6 == half:
+                    add(buf, t0 + n((e - half * 6) * eighth), bow(mtof(m), eighth * 0.9, 0.015, 0.05, 3000.0), 0.2)
+        if b % 8 == 0:
+            add(buf, t0, horn(mtof(root), bar * 1.8, 0.05, 0.4, 800.0), 0.2)
+    finish(buf, tail, "blutige_planken")
+
+
+def aus_der_tiefe():
+    """Kraken: Cis-Moll mit Tritonus, 80 Schlaege. Tiefer Brummton, schwere Schlaege, schleichende Hoerner, Streichercluster."""
+    random.seed(71)
+    bpm = 80.0
+    beat = 60.0 / bpm
+    bar = 4 * beat
+    bars = 26
+    tail = n(4.0)
+    buf = [0.0] * (n(bars * bar) + tail)
+    add(buf, 0, drone(mtof(25), bars * bar + 3.0), 0.8)   # Cis
+    add(buf, 0, drone(mtof(31), bars * bar + 3.0), 0.35)  # G: der Tritonus darunter
+    descend = [37, 36, 35, 34]  # Cis C H B: das Horn sinkt
+    for b in range(bars):
+        t0 = n(b * bar)
+        add(buf, t0, drum("low"), 0.9)
+        add(buf, t0 + n(1.5 * beat), drum("low"), 0.55)
+        if b % 2 == 1:
+            add(buf, t0 + n(3.0 * beat), drum("stomp"), 0.5)
+            add(buf, t0 + n(3.5 * beat), drum("stomp"), 0.6)
+        if b % 2 == 0:
+            add(buf, t0, horn(mtof(descend[(b // 2) % 4]), 2 * bar - 0.5, 0.6, 1.0, 700.0), 0.32)
+        if b >= 4:
+            lo = 49 + (b % 8)
+            for m in (lo, lo + 1, lo + 6):  # enger Cluster, der langsam steigt
+                add(buf, t0, tremolo_pad(mtof(m), bar - 0.1, 9.0, 0.6, 0.5, 0.6, 1500.0), 0.09)
+        for _ in range(3):
+            if random.random() < 0.6:
+                m = random.choice([73, 74, 79, 80, 85])
+                add(buf, t0 + n(random.uniform(0.0, 3.5) * beat), pluck(mtof(m), beat * 2.0, 0.9975, 0.4), 0.16)
+        if b % 8 == 7:
+            for k in range(6):
+                add(buf, t0 + n((1.0 + k * 0.5) * beat), drum("mid"), 0.35 + 0.08 * k)
+    finish(buf, tail, "aus_der_tiefe")
+
+
+def nebelfahrt():
+    """Nebel und Spuk: E aeolisch mit phrygischem F, 58 Schlaege. Leere Harfe, schwebender Teppich, ferne Fiedel."""
+    random.seed(81)
+    bpm = 58.0
+    beat = 60.0 / bpm
+    bar = 4 * beat
+    bars = 22
+    tail = n(5.0)
+    buf = [0.0] * (n(bars * bar) + tail)
+    chords = [[52, 55, 59], [48, 52, 55, 59], [45, 48, 52], [47, 52, 54]]  # Em Cmaj7 Am Bsus
+    scale = scale_notes(4, [0, 1, 3, 5, 7, 8, 10], 64, 88)
+    add(buf, 0, drone(mtof(28), bars * bar + 4.0), 0.6)
+    add(buf, 0, drone(mtof(35), bars * bar + 4.0), 0.25)
+    prev = 76
+    for b in range(bars):
+        t0 = n(b * bar)
+        ch = chords[(b // 2) % 4]
+        if b % 2 == 0:
+            for m in ch:
+                add(buf, t0, pad(mtof(m), 2 * bar, 1.8, 2.5, 800.0), 0.2)
+        for e in range(4):
+            if random.random() < 0.45:
+                prev = nearest_step(prev, scale, 6)
+                add(buf, t0 + n((e + random.choice([0.0, 0.5])) * beat), pluck(mtof(prev), beat * 4.0, 0.9985, 0.35), 0.3)
+        if b % 6 == 3:
+            m = random.choice(ch) + 24
+            add(buf, t0, bow(mtof(m), bar * 1.5, 1.0, 1.5, 1800.0, 0.012, 3.0), 0.14)
+        if b % 4 == 0:
+            add(buf, t0, drum("low"), 0.18)
+    finish(buf, tail, "nebelfahrt")
+
+
+def ruderlied():
+    """Ruderlied: G dorisch, 84 Schlaege. Jeder Ruderschlag eine Trommel, tiefe Hornstimmen wie Maennerchor, Fiedelweise."""
+    random.seed(91)
+    bpm = 84.0
+    beat = 60.0 / bpm
+    bar = 4 * beat
+    bars = 32
+    tail = n(3.0)
+    buf = [0.0] * (n(bars * bar) + tail)
+    chords = [(43, [55, 58, 62]), (41, [53, 57, 60]), (39, [51, 55, 58]), (41, [53, 57, 62])]  # Gm F Es F
+    scale = scale_notes(7, [0, 2, 3, 5, 7, 9, 10], 62, 79)  # G dorisch
+    tune = []
+    prev = 67
+    for _ in range(4):
+        ph = []
+        for e in range(8):
+            if e % 2 == 0 or random.random() < 0.35:
+                prev = nearest_step(prev, scale, 3)
+                ph.append((e, prev, 1.0 if e % 4 == 0 else 0.5))
+        tune.append(ph)
+    add(buf, 0, drone(mtof(31), bars * bar + 2.0), 0.45)
+    for b in range(bars):
+        t0 = n(b * bar)
+        root, tones = chords[(b // 2) % 4]
+        add(buf, t0, drum("low"), 0.6)          # Ruder ins Wasser
+        add(buf, t0 + n(2 * beat), drum("low"), 0.5)
+        add(buf, t0 + n(1.0 * beat), drum("stomp"), 0.28)
+        add(buf, t0 + n(3.0 * beat), drum("stomp"), 0.28)
+        if b % 2 == 0:
+            for m in tones:  # "Chor": tiefe, weiche Hornstimmen
+                add(buf, t0, horn(mtof(m - 12), 2 * bar - 0.4, 0.5, 0.8, 600.0), 0.13)
+        for k in (0, 2):
+            add(buf, t0 + n(k * beat), pluck(mtof(root), beat * 1.8, 0.996, 0.45), 0.4)
+        if b >= 4 and b % 16 < 14:
+            for e, m, ln in tune[(b // 2) % 4] if b % 2 == 0 else tune[(b // 2 + 1) % 4]:
+                add(buf, t0 + n(e * beat / 2.0), bow(mtof(m), beat * ln * 0.95, 0.06, 0.15, 2300.0), 0.2)
+    finish(buf, tail, "ruderlied")
+
+
+def lagerfeuer():
+    """Lager: F-Dur und D-Moll im 3/4-Takt, 66 Schlaege. Laute, warmer Teppich, leise Fiedel, knisterndes Holz."""
+    random.seed(101)
+    bpm = 66.0
+    beat = 60.0 / bpm
+    bar = 3 * beat
+    bars = 32
+    tail = n(3.0)
+    buf = [0.0] * (n(bars * bar) + tail)
+    chords = [(41, [53, 57, 60]), (38, [50, 53, 57]), (46, [50, 53, 58]), (36, [48, 52, 55])]  # F Dm B C
+    scale = scale_notes(5, [0, 2, 4, 5, 7, 9, 10], 65, 84)
+    prev = 72
+    for b in range(bars):
+        t0 = n(b * bar)
+        root, tones = chords[(b // 2) % 4]
+        if b % 2 == 0:
+            for m in tones:
+                add(buf, t0, pad(mtof(m), 2 * bar, 1.2, 1.6, 900.0), 0.16)
+        add(buf, t0, pluck(mtof(root - 12), beat * 2.5, 0.997, 0.3), 0.45)
+        arp = [tones[0], tones[1], tones[2], tones[1] + 12, tones[2], tones[1]]
+        for e in range(6):
+            add(buf, t0 + n(e * beat / 2.0), pluck(mtof(arp[e] + 12), beat * 1.8, 0.9975, 0.4), 0.22)
+        if b >= 4 and b % 8 < 6:
+            for e in range(3):
+                if random.random() < 0.7:
+                    prev = nearest_step(prev, scale, 3)
+                    add(buf, t0 + n(e * beat), bow(mtof(prev), beat * 0.95, 0.12, 0.25, 2000.0, 0.006, 5.0), 0.15)
+    crackle(buf, bars * bar, 5.0, 0.05)
+    finish(buf, tail, "lagerfeuer")
+
+
+PIECES = {"morgenwind": morgenwind, "sturmwache": sturmwache, "eisen_und_salz": eisen_und_salz, "taverne": taverne,
+          "schildwall": schildwall, "blutige_planken": blutige_planken, "aus_der_tiefe": aus_der_tiefe,
+          "nebelfahrt": nebelfahrt, "ruderlied": ruderlied, "lagerfeuer": lagerfeuer}
 
 if __name__ == "__main__":
-    names = sys.argv[1:] or list(PIECES)
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    names = args or list(PIECES)
+    if "--missing" in sys.argv:  # nur, was in Musik/Hintergrund noch fehlt
+        names = [nm for nm in names if not os.path.exists(os.path.join(OUT, nm + ".wav"))]
     for name in names:
         PIECES[name]()

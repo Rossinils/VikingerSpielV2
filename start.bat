@@ -13,4 +13,6 @@ if "%G%"=="" (
   pause
   exit /b 1
 )
+rem Fehlende Hintergrundmusik einmalig erzeugen (braucht Python; ohne Python startet das Spiel trotzdem, nur leiser)
+where py >nul 2>nul && py -3 -X utf8 -I tools\make_music.py --missing
 "%G%" --path . -- %*

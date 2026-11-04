@@ -596,6 +596,95 @@ def s_bones():
     return mix(*tracks)
 
 
+# --- Kampf: Wucht und Zeitlupe, Ereignisse unterwegs (neu; hinten in SOUNDS, damit die alten Klaenge gleich bleiben) ---
+
+def s_hit_heavy():
+    """Schwerer Treffer: tiefer Unterschlag, kurzes Knirschen, die Luft bebt nach."""
+    dur = 0.6
+    sub = env(osc("sine", lambda t: 44.0 + 70.0 * math.exp(-t / 0.035), dur), decay(0.13))
+    crunch = env(filt(noise(dur), "bp", 700, 1.4), decay(0.03))
+    body = env(filt(noise(dur), "lp", 300, 0.9), decay(0.09))
+    return mix(gain(sub, 1.3), gain(crunch, 0.6), gain(body, 0.7))
+
+
+def s_deathblow():
+    """Todesstoss: ein Schlag wie ein Tor, das zufaellt, dann ein tiefer, langer Nachhall und ein Hauch."""
+    dur = 1.6
+    hit = env(filt(noise(dur), "lp", 1600, 0.9), decay(0.04))
+    sub = env(osc("sine", lambda t: 36.0 + 90.0 * math.exp(-t / 0.04), dur), decay(0.35))
+    toll = mix(*[gain(env(osc("sine", f, dur), lambda t, k=k: smooth(t, 0.0, 0.01) * math.exp(-t / (0.5 + 0.15 * k))), a) for k, (f, a) in enumerate(((73.4, 0.6), (110.0, 0.35), (164.8, 0.2)))])
+    breath = env(sweep(noise(dur), "bp", lambda t: 900.0 - 500.0 * min(t / 1.2, 1.0), 1.2), lambda t: smooth(t, 0.15, 0.5) * (1.0 - smooth(t, 0.8, 1.6)))
+    return mix(gain(hit, 0.9), gain(sub, 1.2), delay(gain(toll, 0.8), 0.02), gain(breath, 0.25))
+
+
+def s_slow_in():
+    """Die Zeit dehnt sich: ein Rauschen faellt in der Tonhoehe, darunter ein dumpfer Herzschlag."""
+    dur = 0.7
+    fall = env(sweep(noise(dur), "bp", lambda t: 2400.0 * math.exp(-t / 0.18) + 180.0, 2.2), lambda t: smooth(t, 0.0, 0.05) * (1.0 - smooth(t, 0.35, 0.7)))
+    tone = env(osc("saw", lambda t: 180.0 * math.exp(-t / 0.3) + 50.0, dur), lambda t: smooth(t, 0.0, 0.08) * (1.0 - smooth(t, 0.3, 0.7)))
+    tone = filt(tone, "lp", 600, 0.9)
+    beat = env(osc("sine", lambda t: 42.0 + 30.0 * math.exp(-t / 0.05), dur), decay(0.12))
+    return mix(gain(fall, 0.7), gain(tone, 0.4), delay(gain(beat, 0.9), 0.08))
+
+
+def s_slow_out():
+    """Die Zeit laeuft wieder: ein kurzes Rauschen steigt nach oben."""
+    dur = 0.45
+    rise = env(sweep(noise(dur), "bp", lambda t: 250.0 + 3000.0 * (t / dur) ** 2, 2.0), lambda t: smooth(t, 0.0, 0.25) * (1.0 - smooth(t, 0.35, 0.45)))
+    return gain(rise, 0.8)
+
+
+def s_whale():
+    """Ein Wal: langes, tiefes Rufen mit Gleiten, dann das Blasen aus dem Spritzloch."""
+    dur = 2.4
+    call = osc("saw", lambda t: 95.0 + 55.0 * math.sin(math.pi * min(t / 1.4, 1.0)) - 20.0 * max(t - 1.4, 0.0), dur, 0.01, 3.0)
+    call = sweep(call, "lp", lambda t: 380.0 + 300.0 * math.sin(math.pi * min(t / 1.4, 1.0)), 2.0)
+    call = env(call, lambda t: smooth(t, 0.0, 0.25) * (1.0 - smooth(t, 1.2, 1.7)))
+    blow = env(filt(noise(dur), "bp", 1300, 0.7), lambda t: smooth(t, 1.55, 1.62) * (1.0 - smooth(t, 1.75, 2.35)))
+    spray = env(filt(noise(dur), "hp", 4000, 0.8), lambda t: smooth(t, 1.6, 1.7) * (1.0 - smooth(t, 1.8, 2.4)))
+    return mix(gain(call, 0.9), gain(blow, 0.55), gain(spray, 0.25))
+
+
+def s_wisp():
+    """Irrlichter: schwebende, gegeneinander verstimmte Glasstimmen, die kommen und gehen."""
+    dur = 2.0
+    tracks = []
+    for k in range(5):
+        f = random.uniform(700, 1500)
+        t0 = random.uniform(0.0, 0.9)
+        d = random.uniform(0.7, 1.1)
+        tone = osc("sine", lambda t, f=f: f * (1.0 + 0.012 * math.sin(TAU * 6.5 * t)), d)
+        tone = mix(tone, gain(osc("sine", f * 1.5, d), 0.3))
+        tone = env(tone, lambda t, d=d: smooth(t, 0.0, d * 0.4) * (1.0 - smooth(t, d * 0.55, d)))
+        tracks.append(delay(gain(tone, 0.35), t0))
+    air = env(filt(noise(dur), "bp", 3000, 2.0), lambda t: smooth(t, 0.0, 0.5) * (1.0 - smooth(t, 1.3, 2.0)))
+    tracks.append(gain(air, 0.12))
+    return mix(*tracks)
+
+
+def s_whirl():
+    """Strudel: Wasser rauscht im Kreis, die Tonhoehe kreist mit, darunter ein Sog."""
+    dur = 2.2
+    swirl = sweep(noise(dur), "bp", lambda t: 520.0 + 300.0 * math.sin(TAU * 1.6 * t) + 120.0 * t, 1.6)
+    swirl = env(swirl, lambda t: smooth(t, 0.0, 0.5) * (1.0 - smooth(t, 1.6, 2.2)))
+    suck = env(osc("sine", lambda t: 70.0 - 15.0 * t, dur), lambda t: smooth(t, 0.2, 0.9) * (1.0 - smooth(t, 1.5, 2.2)))
+    gurgle = []
+    for _ in range(7):
+        t0 = random.uniform(0.3, 1.6)
+        f0 = random.uniform(160, 300)
+        gurgle.append(delay(gain(env(osc("sine", lambda t, f0=f0: f0 * (1.0 + 1.2 * min(t / 0.08, 1.0)), 0.14), decay(0.05)), 0.3), t0))
+    return mix(gain(swirl, 0.8), gain(suck, 0.7), *gurgle)
+
+
+def s_ice():
+    """Treibeis: Schollen knirschen am Rumpf, ein heller Riss."""
+    dur = 1.4
+    grind = env(filt(noise(dur), "bp", 420, 3.0), lambda t: smooth(t, 0.0, 0.2) * (0.6 + 0.4 * math.sin(TAU * 7.0 * t)) * (1.0 - smooth(t, 0.9, 1.4)))
+    crack = env(filt(noise(dur), "hp", 2500, 0.9), lambda t: smooth(t, 0.55, 0.56) * math.exp(-max(t - 0.56, 0.0) / 0.04))
+    ring = env(osc("sine", 1850.0, dur), lambda t: smooth(t, 0.55, 0.57) * math.exp(-max(t - 0.57, 0.0) / 0.2))
+    return mix(gain(grind, 0.8), gain(crack, 0.7), gain(ring, 0.15))
+
+
 # --- Spielautomaten ----------------------------------------------------------
 
 def read_wav(path):
@@ -894,6 +983,14 @@ SOUNDS = {
     "slot_curse": (s_slot_curse, 0.8),
     "slot_power": (s_slot_power, 0.75),
     "slot_stack": (s_slot_stack, 0.85),
+    "hit_heavy": (s_hit_heavy, 0.85),
+    "deathblow": (s_deathblow, 0.9),
+    "slow_in": (s_slow_in, 0.7),
+    "slow_out": (s_slow_out, 0.6),
+    "whale": (s_whale, 0.8),
+    "wisp": (s_wisp, 0.6),
+    "whirl": (s_whirl, 0.75),
+    "ice": (s_ice, 0.7),
 }
 
 
