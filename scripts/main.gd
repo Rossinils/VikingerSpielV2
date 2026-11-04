@@ -72,6 +72,8 @@ func _ready() -> void:
 			Engine.time_scale = float(arg.get_slice("=", 1))
 		elif arg.begins_with("--seed="):
 			seed(int(arg.get_slice("=", 1)))
+		elif arg == "--textcheck":
+			Hud.text_check = true  # Entwicklung: meldet Text, der breiter als sein Feld ist oder über den Bildrand ragt
 		elif arg == "--nohelp":
 			_start_help = false
 		elif arg == "--nomusic" or arg == "--nosound":
@@ -204,7 +206,7 @@ func _ready() -> void:
 		add_child(Sfx.new())
 
 	var saved := Persist.load_run() if (_persist or _memtest) else {}
-	var can_resume := saved.has("map") and saved.has("crew") and saved.has("fallen_names")
+	var can_resume := Persist.resumable(saved)
 	if can_resume:
 		_voy.resume(saved)
 		_hud.hide_help()

@@ -157,6 +157,7 @@ Noch ohne Tondatei: *Stürmische See* (nur der Text liegt vor).
 
 ## Grafik und Oberfläche
 
+- **Gegenstands-Symbole und Segen-Embleme** (`tools/make_item_icons.py`, `scripts/item_icons.gd`): 36 Symbole für Schiffsgegenstände, Ausrüstung und die Pfandflasche (20×20 auf dunkler Platte, Rand und Glanz je nach Seltenheit eingebrannt: grau, blau, violett, gold) in Werft, Rüstkammer und Ausrüstung; 14 Medaillon-Embleme (32×32) für die Segen beim Stufenaufstieg. Reihenfolge und Lader werden vom Skript miterzeugt.
 - **Politur (zuletzt):** Himmel mit gedithertem Verlauf, driftenden Pixelwolken, Sonne, Küstensilhouette und Möwen (`shaders/sky.gdshader`, `tools/make_sky.py`), drei Wasserschichten mit Schaumkämmen, Glitzern, Bugwelle und Kielwasser, Regen mit Spritzern, Blitz als Silhouette; überarbeitetes Langschiff und Crew (`tools/make_art.py`); Kulissen für Draugr, Räuber, Kraken, Handelsschiff, Insel, Dorf, Hafen und Wrack hinter dem eigenen Schiff (`tools/make_enemies.py`, `scripts/enemy_layer.gd`); Pixelrahmen, Pergament-Seekarte mit Symbolen je Begegnung, Porträts der Mannschaft, Randvignette (`tools/make_ui.py`, `scripts/ui_skin.gd`). Alles harte Pixel im 480×320-Raster.
 - Seitenansicht, Pixelart, gedeckte Palette (Schwarzblau, Moosgrün, Rost, Knochenweiß, wenig Rot als Akzent). Wasser als Parallax-Schichten mit Wellensimulation. Assets per Skript (`tools/make_art.py`).
 - **Kopfzeile:** Rumpf, Proviant, Beute (und Pulver mit Kanonen) links, Meile und See rechts; die Erfahrung ist nur ein feiner violetter Strich am oberen Rand, Etappe und Stufe stehen über der Seekarte.
@@ -181,6 +182,8 @@ Noch ohne Tondatei: *Stürmische See* (nur der Text liegt vor).
 | H / F11 / M / + − / G / Strg+N | Hilfe, Vollbild, Ton, Lautstärke, Gedenkstein, neue Fahrt (zweimal) |
 
 ## Testen ohne Spieler und ohne dass ein Fenster aufgeht (stört nicht bei der Arbeit am PC)
+
+Alles Wichtige zum lokalen Start, zu den Prüfungen und zu den Hilfsskripten steht in `README.md`; die Befunde der letzten Prüfung in `docs/PRUEFUNG.md`. Kurz: `tools/dev/alltests.sh` (Linux/macOS/Git Bash) führt alle Tests aus, `--textcheck` meldet abgeschnittenen Text.
 
 - Logiktest: `godot --headless --path . --script tools/selftest.gd` (außerdem `tools/musictest.gd`, `tools/sfxtest.gd`).
 - Bots: `godot --headless --path . -- --autoplay --log --timescale=20 --seed=3 --maxstage=8` (`--random` für den Zufallsbot). Der kluge Bot probiert alle 27 Reglerstellungen in der Vorschau durch, kauft in der Werft, wählt Segen und nutzt in der Seeschlacht Karten gegen den angekündigten Zug.

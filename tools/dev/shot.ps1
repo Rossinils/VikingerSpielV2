@@ -4,7 +4,7 @@
 # -Sec ist die Spielzeit (Waves.time) bis zum Bild. Typische Flags: --shotfight, --shotfight2, --shotfight3, --shotfx, --shotfx2,
 # --shotfx3, --shotkraken, --shotkraken2, --shotheroic, --shotsnap, --shotloadout, --hovermouse=x,y (Tooltips aus: 1,1).
 if ($Proj -eq "") { $Proj = Split-Path (Split-Path $PSScriptRoot) }
-$g = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe"
+$g = if ($env:GODOT) { $env:GODOT } else { "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe" }  # Umgebungsvariable GODOT überschreibt den winget-Pfad
 $id = [guid]::NewGuid().ToString("N").Substring(0, 8)
 $o = Join-Path $env:TEMP "shot_out_$id.txt"; $e = Join-Path $env:TEMP "shot_err_$id.txt"
 $a = @("--no-window", "--resolution", "3120x2080", "--path", $Proj, "--", "--shot=$Out@$Sec", "--nohelp", "--nosave") + @($Flags -split ' ' | Where-Object { $_ -ne "" })

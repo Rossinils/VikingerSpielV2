@@ -1,0 +1,5 @@
+# Nur die Startskripte: Shell-Skripte brauchen LF (auch unter Windows/Git Bash), die Batch-Datei CRLF.
+# Alles andere bleibt, wie es ist.
+start.sh text eol=lf
+tools/dev/*.sh text eol=lf
+start.bat text eol=crlf

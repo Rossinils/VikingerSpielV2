@@ -1,7 +1,7 @@
 ﻿param([string]$Mode = "--autoplay", [int[]]$Seeds = @(1, 2, 3), [int]$MaxStage = 8, [int]$Timeout = 400, [string]$Proj = "")
 # Laesst Bots komplette Fahrten spielen (headless, schnell). Zeigt Ende, mittlere Etappe und Fehlerzeilen.
 if ($Proj -eq "") { $Proj = Split-Path (Split-Path $PSScriptRoot) }
-$g = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe"
+$g = if ($env:GODOT) { $env:GODOT } else { "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe" }  # Umgebungsvariable GODOT überschreibt den winget-Pfad
 $stages = @(); $errLines = 0; $ended = 0; $timeouts = 0
 foreach ($sd in $Seeds) {
   $id = [guid]::NewGuid().ToString("N").Substring(0, 8)

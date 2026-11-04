@@ -58,6 +58,8 @@ var _mem_runs: Array = []
 var _mem_data: Dictionary = {"runs": []}
 var _mem_index := 0
 var _ui: Font
+static var text_check := false  # --textcheck: _t meldet zu breiten Text (Entwicklung)
+var _text_seen := {}
 var _lore: Font
 var _help := true
 var _btns: Array = []
@@ -68,7 +70,6 @@ var _hover_node: Array = []
 var _tips: Array = []  # Tooltip-Flächen dieses Bildes: [{r: Rect2, tip: Dictionary}], später eingetragene gelten zuerst
 var slot_view: SlotView = null  # Spielautomat über allem, solange voy.automat_open
 var slot_demo := ""  # nur für Screenshots (--shotslot=...): Szene des Automaten
-var _slot_tex: Texture2D = null  # Bilder der Automaten (für die Pfandflasche in der Schiffsansicht)
 var _loot_seen := -1.0
 var _loot_pop := 0.0  # so lange wird die Änderung der Beute neben der Zahl gezeigt
 var _loot_delta := 0
@@ -82,7 +83,6 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	_slot_tex = null
 	slot_view = null
 
 
@@ -273,8 +273,44 @@ func slot_key(key: int) -> bool:
 
 func _t(pos: Vector2, s: String, col: Color = PAPER, size: int = 9, align: int = HORIZONTAL_ALIGNMENT_LEFT, w: float = -1.0, font: Font = null) -> void:
 	var f := font if font != null else _ui
+	if w > 0.0 and float(s.length()) * float(size) * 0.95 > w:
+		# Sicherheitsnetz: draw_string schneidet Text, der breiter als w ist, hart ab (mitten im Wort). Lieber erst
+		# eine Stufe kleiner (bis 6), dann mit "…" kürzen. Kurze Texte kommen an dieser Prüfung gar nicht vorbei.
+		var tw := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		if tw > w:
+			var was := s
+			var k := size
+			while k > 6 and tw > w:
+				k -= 1
+				tw = f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, k).x
+			if tw > w:
+				while s.length() > 1 and tw > w:
+					s = s.substr(0, s.length() - 1)
+					tw = f.get_string_size(s.rstrip(" ,.") + "…", HORIZONTAL_ALIGNMENT_LEFT, -1, k).x
+				s = s.rstrip(" ,.") + "…"
+			if text_check and not _text_seen.has(was):
+				_text_seen[was] = true
+				print("TEXTCHECK: \"%s\" (Größe %d, bei %.0f,%.0f): zu breit für %.0f px, angepasst auf Größe %d%s" % [was, size, pos.x, pos.y, w, k, " und gekürzt" if s != was else ""])
+			size = k
 	draw_string_outline(f, pos, s, align, w, size, 3, INK)
 	draw_string(f, pos, s, align, w, size, col)
+	if text_check and w <= 0.0:
+		_check_text(pos, s, align, w, size, f)
+
+
+## --textcheck: meldet (einmal je Text), wenn eine Zeile breiter als das ihr gegebene Feld ist oder rechts aus dem Bild ragt.
+func _check_text(pos: Vector2, s: String, align: int, w: float, size: int, f: Font) -> void:
+	if s == "":
+		return
+	var tw := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var why := ""
+	if w > 0.0 and tw > w + 0.5:
+		why = "breiter als das Feld (%.0f > %.0f px)" % [tw, w]
+	elif align == HORIZONTAL_ALIGNMENT_LEFT and pos.x + tw > Waves.VIEW_W + 0.5:
+		why = "ragt rechts aus dem Bild (bis x %.0f)" % (pos.x + tw)
+	if why != "" and not _text_seen.has(s):
+		_text_seen[s] = true
+		print("TEXTCHECK: \"%s\" (Größe %d, bei %.0f,%.0f): %s" % [s, size, pos.x, pos.y, why])
 
 
 func _bar(x: float, y: float, w: float, h: float, frac: float, col: Color) -> void:
@@ -651,6 +687,33 @@ func _draw_chart(mouse: Vector2) -> void:
 		_t(Vector2(x2, CHART_INFO_Y + 9.0), "keine Gefahr", DIM, 8)
 
 
+## Bricht jede Zeile [Text, Farbe, Tooltip?] an Wortgrenzen so um, dass sie in w Pixel passt; Folgezeilen erben Farbe und Tooltip.
+## Ohne das ragen lange Zeilen (große Zahlen, lange Namen) aus ihrem Feld heraus.
+func _fit_lines(lines: Array, w: float, size: int) -> Array:
+	var out: Array = []
+	for line in lines:
+		var rows: PackedStringArray = _fit_rows(String(line[0]), w, size)
+		for k in rows.size():
+			var row: Array = line.duplicate()
+			row[0] = rows[k] if k == 0 else "  " + rows[k]
+			out.append(row)
+	return out
+
+
+func _fit_rows(s: String, w: float, size: int) -> PackedStringArray:
+	var rows := PackedStringArray()
+	var cur := ""
+	for word in s.split(" "):
+		var t := word if cur == "" else cur + " " + word
+		if cur != "" and _ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > w:
+			rows.append(cur)
+			cur = word
+		else:
+			cur = t
+	rows.append(cur)
+	return rows
+
+
 ## Das Manöver für die Vorschau: der Knopf unter der Maus, sonst die gewählten Stellungen.
 func _shown_maneuver() -> Dictionary:
 	if not _hover_dial.is_empty():
@@ -741,7 +804,7 @@ func _draw_preview() -> void:
 	var box := PREVIEW_RECT
 	var plan_lines: Array = []
 	if voy.encounter < 0:
-		plan_lines = _preview_lines(d)
+		plan_lines = _fit_lines(_preview_lines(d), box.size.x - 18.0, 8)
 		box.size.y = minf(box.size.y, 40.0 + plan_lines.size() * 10.5)  # so hoch wie der Inhalt
 	elif voy.battle.is_empty():
 		var text_h := _lore.get_multiline_string_size(String(Encounters.DATA[voy.encounter]["desc"]), HORIZONTAL_ALIGNMENT_LEFT, box.size.x - 12.0, 9).y
@@ -806,7 +869,7 @@ func _draw_battle_cards(active: bool) -> void:
 		var ok := Encounters.available(voy, opt)
 		var hover := active and ok and r.has_point(mouse)
 		_card(r, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if (active and ok) else UiSkin.State.DISABLED), 1.0 if active else 0.6)
-		_t(r.position + Vector2(5, 15), String(opt["label"]), GOLD if (active and ok) else DIM, 9)
+		_t(r.position + Vector2(5, 15), String(opt["label"]), GOLD if (active and ok) else DIM, 9, HORIZONTAL_ALIGNMENT_LEFT, w - 9.0)
 		var lines: Array = Battle.lines(voy, String(opt["tactic"]))
 		for k in lines.size():
 			var text := String(lines[k])
@@ -817,7 +880,7 @@ func _draw_battle_cards(active: bool) -> void:
 				col = GREEN if (active and ok) else DIM
 			elif k == 0:
 				col = PAPER if (active and ok) else DIM
-			_t(r.position + Vector2(5, 29 + k * 11), text, col, 8)
+			_t(r.position + Vector2(5, 29 + k * 11), text, col, 8, HORIZONTAL_ALIGNMENT_LEFT, w - 9.0)
 		_t(r.position + Vector2(r.size.x - 10, r.size.y - 5), str(i + 1), DIM, 8)
 		if active and ok:
 			_register(r, "e%d" % i)
@@ -899,7 +962,7 @@ func _draw_harbor_cards(active: bool) -> void:
 		var ok := Encounters.available(voy, opt)
 		var hover := active and ok and r.has_point(mouse)
 		_card(r, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if ok else UiSkin.State.DISABLED), 1.0 if active else 0.6)
-		_t(r.position + Vector2(5, 15), String(opt["label"]), GOLD if ok else DIM, 9)
+		_t(r.position + Vector2(5, 15), String(opt["label"]), GOLD if ok else DIM, 9, HORIZONTAL_ALIGNMENT_LEFT, cw - 9.0)
 		var lines: Array = Encounters.card_lines(voy, opt)
 		for k in lines.size():
 			var text := String(lines[k])
@@ -908,7 +971,7 @@ func _draw_harbor_cards(active: bool) -> void:
 				col = RED if not ok else PAPER
 			elif text.contains("+"):
 				col = GREEN if ok else DIM
-			_t(r.position + Vector2(5, 29 + k * 11), text, col, 8)
+			_t(r.position + Vector2(5, 29 + k * 11), text, col, 8, HORIZONTAL_ALIGNMENT_LEFT, cw - 9.0)
 		if done:
 			_t(r.position + Vector2(5, r.size.y - 6), "erledigt", DIM, 8)
 		elif not ok and String(opt.get("need", "")) == "recruit":
@@ -940,7 +1003,7 @@ func _draw_encounter_cards() -> void:
 		var ok := Encounters.available(voy, opt)
 		var hover := active and ok and r.has_point(mouse)
 		_card(r, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if ok else UiSkin.State.DISABLED))
-		_t(r.position + Vector2(7, 16), String(opt["label"]), GOLD if ok else DIM, 10)
+		_t(r.position + Vector2(7, 16), String(opt["label"]), GOLD if ok else DIM, 10, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 14.0)
 		var lines: Array = Encounters.card_lines(voy, opt)
 		for k in lines.size():
 			var col := PAPER
@@ -954,7 +1017,7 @@ func _draw_encounter_cards() -> void:
 				col = GREEN
 			else:
 				col = DIM if k > 0 else PAPER
-			_t(r.position + Vector2(7, 30 + k * 11), text, col, 8)
+			_t(r.position + Vector2(7, 30 + k * 11), text, col, 8, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 14.0)
 		if not ok:
 			_t(r.position + Vector2(7, r.size.y - 6), "nicht möglich", RED, 8)
 		_t(r.position + Vector2(r.size.x - 12, r.size.y - 6), str(i + 1), DIM, 8)
@@ -1117,7 +1180,7 @@ func _draw_rescue() -> void:
 		_t(Vector2(rect.position.x, rect.position.y + 15), String(b[1]), PAPER if enabled else DIM, 9, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x)
 		if enabled:
 			_register(rect, String(b[2]))
-	_t(Vector2(r.position.x - 10.0, r.end.y + 12), "Anderen Mann anklicken, um den Retter zu wechseln.", DIM, 8, HORIZONTAL_ALIGNMENT_CENTER, r.size.x + 20.0)
+	_t(Vector2(r.position.x - 10.0, r.end.y + 12), "Anderen Mann anklicken: Retter wechseln.", DIM, 8, HORIZONTAL_ALIGNMENT_CENTER, r.size.x + 20.0)
 
 
 # --- Hauptmenü ----------------------------------------------------------------
@@ -1239,15 +1302,12 @@ func _draw_ship_view(mouse: Vector2) -> void:
 	UiSkin.panel(self, panel, UiSkin.BRONZE, 2, "tile_stone")
 	var tab := voy.werft_tab if shopping else 0
 	var titles := ["Werft", "Schmiede", "Ausrüstung", "Rüstkammer"]
-	_t(Vector2(24, 34), String(titles[tab]) if shopping else "Das Schiff", GOLD, 16, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _lore)
+	_t(Vector2(24, 34), String(titles[tab]) if shopping else "Das Schiff", GOLD, 16, HORIZONTAL_ALIGNMENT_LEFT, 96.0 if shopping else -1.0, _lore)
 	_t(Vector2(0, 49), "Beute %d" % roundi(voy.loot), GOLD, 9, HORIZONTAL_ALIGNMENT_RIGHT, 456.0)
-	if voy.pfand > 0 and tab == 0:  # die Pfandflasche (legendär) hat keinen Platz am Schiff, aber hier einen Hinweis
-		if _slot_tex == null and DisplayServer.get_name() != "headless":
-			_slot_tex = load("res://assets/slots.png")
-		if _slot_tex != null:
-			draw_texture_rect_region(_slot_tex, Rect2(300, 40, 16, 16), Rect2(11.0 * 32.0, 0.0, 32.0, 32.0))
-		_t(Vector2(318, 50), "Pfandflasche ×%d" % voy.pfand, Items.pfand_color(), 8)
-		_tip(Rect2(298, 40, 100, 16), Tips.pfand(voy))
+	if voy.pfand > 0 and tab == 0:  # die Pfandflasche (legendär) hat keinen Platz am Schiff, aber hier einen Hinweis (unten rechts: oben liegt der Hinweistext)
+		ItemIcons.draw_inner(self, "pfand", Vector2(262, 292), 3)
+		_t(Vector2(282, 304), "Pfandflasche ×%d" % voy.pfand, Items.pfand_color(), 8, HORIZONTAL_ALIGNMENT_LEFT, 120.0)
+		_tip(Rect2(260, 290, 124, 20), Tips.pfand(voy))
 	UiSkin.rule(self, 24.0, 456.0, 39.0, UiSkin.BRONZE, false)
 	var close := Rect2(394, 17, 60, 16)
 	_small_button(close, "Schließen", close.has_point(mouse))
@@ -1287,18 +1347,22 @@ func _draw_ship_view(mouse: Vector2) -> void:
 		var key := String(voy.items[i]) if has else ""
 		var edge: Color = Items.rarity_color(key) if (has and Items.rarity_of(key) > 0) else UiSkin.BRONZE_LO.lerp(UiSkin.BRONZE, 0.5)
 		UiSkin.panel(self, r, edge, 1 if (has and Items.rarity_of(key) > 0) else 0, "tile_wood")
-		_t(r.position + Vector2(6, 11), String(Items.SLOT_NAMES[i]), DIM, 8)
 		if has:
-			_t(r.position + Vector2(52, 11), Items.name_of(key), Items.rarity_color(key) if Items.rarity_of(key) > 0 else GOLD, 9, HORIZONTAL_ALIGNMENT_LEFT, 150.0)
+			ItemIcons.draw(self, key, r.position + Vector2(4, 5), Items.rarity_of(key))
+		else:
+			_empty_plate(Rect2(r.position + Vector2(4, 5), Vector2(ItemIcons.TILE, ItemIcons.TILE)))
+		_t(r.position + Vector2(28, 11), String(Items.SLOT_NAMES[i]), DIM, 8)
+		if has:
+			_t(r.position + Vector2(74, 11), Items.name_of(key), Items.rarity_color(key) if Items.rarity_of(key) > 0 else GOLD, 9, HORIZONTAL_ALIGNMENT_LEFT, 98.0)
 			if Items.rarity_of(key) > 0:
 				_t(r.position + Vector2(r.size.x - 50, 11), Items.rarity_name(key), Items.rarity_color(key), 7, HORIZONTAL_ALIGNMENT_RIGHT, 46.0)
 			var parts: PackedStringArray = []
 			for ml in Items.lines_of(key):
 				parts.append(String(ml[0]))
-			_t(r.position + Vector2(6, 24), "  ·  ".join(parts), DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 214.0)
+			_t(r.position + Vector2(28, 24), "  ·  ".join(parts), DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 192.0)
 			_tip(r, Tips.item(key, voy.stage, false))
 		else:
-			_t(r.position + Vector2(52, 11), "leer", Color(DIM, 0.6), 9)
+			_t(r.position + Vector2(74, 11), "leer", Color(DIM, 0.6), 9)
 
 	# Rechts
 	var x := 262.0
@@ -1308,16 +1372,17 @@ func _draw_ship_view(mouse: Vector2) -> void:
 			var id2 := String(voy.shop[k])
 			var price := Items.price_at(id2, voy.stage)
 			var can := voy.loot >= float(price)
-			var r2 := Rect2(x, 72 + k * 60, 194, 56)
+			var r2 := Rect2(x, 72 + k * 62, 194, 58)
 			var hover := can and r2.has_point(mouse)
 			var rc := Items.rarity_color(id2)
 			_card(r2, UiSkin.State.HOVER if hover else (UiSkin.State.NORMAL if can else UiSkin.State.DISABLED), 1.0, rc if Items.rarity_of(id2) > 0 else Color(0, 0, 0, 0))
-			_t(r2.position + Vector2(6, 13), Items.name_of(id2), (rc if Items.rarity_of(id2) > 0 else GOLD) if can else DIM, 9, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
+			ItemIcons.draw(self, id2, r2.position + Vector2(6, 4), Items.rarity_of(id2), Color.WHITE if can else Color(1, 1, 1, 0.5))
+			_t(r2.position + Vector2(32, 13), Items.name_of(id2), (rc if Items.rarity_of(id2) > 0 else GOLD) if can else DIM, 9, HORIZONTAL_ALIGNMENT_LEFT, 112.0)
 			_t(r2.position + Vector2(0, 13), "%d" % price, GOLD if can else RED, 9, HORIZONTAL_ALIGNMENT_RIGHT, r2.size.x - 6.0)
-			_t(r2.position + Vector2(6, 23), "%s · %s" % [Items.rarity_name(id2), Items.KIND_NAMES[Items.kind_of(id2)]], rc if can else Color(DIM, 0.8), 7)
-			var yy := 31.0
+			_t(r2.position + Vector2(32, 23), "%s · %s" % [Items.rarity_name(id2), Items.KIND_NAMES[Items.kind_of(id2)]], rc if can else Color(DIM, 0.8), 7, HORIZONTAL_ALIGNMENT_LEFT, 150.0)
+			var yy := 30.0
 			for ml in Items.lines_of(id2):
-				if yy > 56.0:
+				if yy > 55.0:
 					break
 				_t(r2.position + Vector2(6, yy), String(ml[0]), GREEN if bool(ml[1]) else RED, 7)
 				yy += 8.0
@@ -1375,6 +1440,12 @@ func _draw_ship_view(mouse: Vector2) -> void:
 	_draw_tip(mouse)
 
 
+## Leere Platte (20x20) für einen unbesetzten Platz: dunkel, mit blassem Rand.
+func _empty_plate(r: Rect2) -> void:
+	draw_rect(r, Color(UiSkin.INK, 0.55))
+	draw_rect(r, Color(DIM, 0.35), false, 1.0)
+
+
 ## Die Männerliste links in Schmiede und Ausrüstung.
 func _draw_men_list(mouse: Vector2, cur: CrewMember) -> void:
 	var men := voy.forge_men()
@@ -1416,15 +1487,19 @@ func _draw_gear_tab(mouse: Vector2) -> void:
 		var key := String(cur.gear[s]) if has else ""
 		var rc := Gear.rarity_color(key) if (has and Items.rarity_of(key) > 0) else Color(0, 0, 0, 0)
 		_card(rr, UiSkin.State.HOVER if (has and rr.has_point(mouse)) else UiSkin.State.NORMAL, 0.95, rc)
-		_t(rr.position + Vector2(6, 11), String(Gear.SLOT_NAMES[s]), DIM, 8)
 		if has:
-			_t(rr.position + Vector2(52, 11), Gear.name_of(key), Gear.rarity_color(key) if Items.rarity_of(key) > 0 else GOLD, 9, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
+			ItemIcons.draw(self, key, rr.position + Vector2(4, 4), Items.rarity_of(key))
+		else:
+			_empty_plate(Rect2(rr.position + Vector2(4, 4), Vector2(ItemIcons.TILE, ItemIcons.TILE)))
+		_t(rr.position + Vector2(28, 11), String(Gear.SLOT_NAMES[s]), DIM, 8)
+		if has:
+			_t(rr.position + Vector2(74, 11), Gear.name_of(key), Gear.rarity_color(key) if Items.rarity_of(key) > 0 else GOLD, 9, HORIZONTAL_ALIGNMENT_LEFT, 118.0)
 			_t(rr.position + Vector2(rr.size.x - 62, 11), "ablegen" if rr.has_point(mouse) else Gear.rarity_name(key), Color(DIM, 0.9) if rr.has_point(mouse) else Gear.rarity_color(key), 7, HORIZONTAL_ALIGNMENT_RIGHT, 56.0)
-			_t(rr.position + Vector2(6, 22), _gear_summary(key), DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 242.0)
+			_t(rr.position + Vector2(28, 22), _gear_summary(key), DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 220.0)
 			_register(rr, "gu%d" % s)
 			_tip(rr, Tips.gear(key, voy.stage, false))
 		else:
-			_t(rr.position + Vector2(52, 11), "leer", Color(DIM, 0.6), 9)
+			_t(rr.position + Vector2(74, 11), "leer", Color(DIM, 0.6), 9)
 	var free := voy.stash_free()
 	_t(Vector2(x, 176), "Vorrat (%d von %d)" % [voy.stash.size(), Gear.STASH_MAX], GOLD, 9)
 	var auto_b := Rect2(x + 150, 165, 104, 14)
@@ -1437,7 +1512,8 @@ func _draw_gear_tab(mouse: Vector2) -> void:
 		var rr2 := Rect2(x, 182.0 + float(i) * 21.0, 254, 19)
 		var rc2 := Gear.rarity_color(key2) if Items.rarity_of(key2) > 0 else Color(0, 0, 0, 0)
 		_card(rr2, UiSkin.State.HOVER if rr2.has_point(mouse) else UiSkin.State.NORMAL, 0.95, rc2)
-		_t(rr2.position + Vector2(6, 12), Gear.name_of(key2), Gear.rarity_color(key2) if Items.rarity_of(key2) > 0 else GOLD, 8, HORIZONTAL_ALIGNMENT_LEFT, 96.0)
+		ItemIcons.draw_inner(self, key2, rr2.position + Vector2(3, 1.5), Items.rarity_of(key2))
+		_t(rr2.position + Vector2(22, 12), Gear.name_of(key2), Gear.rarity_color(key2) if Items.rarity_of(key2) > 0 else GOLD, 8, HORIZONTAL_ALIGNMENT_LEFT, 80.0)
 		_t(rr2.position + Vector2(104, 12), "%s · %s" % [Gear.SLOT_NAMES[Gear.slot_of(key2)], _gear_summary(key2)], Color(DIM, 0.95), 6, HORIZONTAL_ALIGNMENT_LEFT, 148.0)
 		_register(rr2, "ge%d" % i)
 		_tip(rr2, Tips.gear(key2, voy.stage, false))
@@ -1454,15 +1530,16 @@ func _draw_armory(mouse: Vector2) -> void:
 		var key := String(voy.gear_shop[k])
 		var price := Gear.price_at(key, voy.stage)
 		var can := voy.loot >= float(price) and voy.stash_free() > 0
-		var rr := Rect2(22, 72.0 + float(k) * 60.0, 224, 56)
+		var rr := Rect2(22, 72.0 + float(k) * 62.0, 224, 58)
 		var rc := Gear.rarity_color(key)
 		_card(rr, UiSkin.State.HOVER if (can and rr.has_point(mouse)) else (UiSkin.State.NORMAL if can else UiSkin.State.DISABLED), 1.0, rc if Items.rarity_of(key) > 0 else Color(0, 0, 0, 0))
-		_t(rr.position + Vector2(6, 13), Gear.name_of(key), (rc if Items.rarity_of(key) > 0 else GOLD) if can else DIM, 9, HORIZONTAL_ALIGNMENT_LEFT, 150.0)
+		ItemIcons.draw(self, key, rr.position + Vector2(6, 4), Items.rarity_of(key), Color.WHITE if can else Color(1, 1, 1, 0.5))
+		_t(rr.position + Vector2(32, 13), Gear.name_of(key), (rc if Items.rarity_of(key) > 0 else GOLD) if can else DIM, 9, HORIZONTAL_ALIGNMENT_LEFT, 132.0)
 		_t(rr.position + Vector2(0, 13), "%d" % price, GOLD if can else RED, 9, HORIZONTAL_ALIGNMENT_RIGHT, rr.size.x - 6.0)
-		_t(rr.position + Vector2(6, 23), "%s · %s" % [Gear.rarity_name(key), Gear.SLOT_NAMES[Gear.slot_of(key)]], rc if can else Color(DIM, 0.8), 7)
-		var yy := 31.0
+		_t(rr.position + Vector2(32, 23), "%s · %s" % [Gear.rarity_name(key), Gear.SLOT_NAMES[Gear.slot_of(key)]], rc if can else Color(DIM, 0.8), 7, HORIZONTAL_ALIGNMENT_LEFT, 150.0)
+		var yy := 30.0
 		for ml in Gear.lines_of(key):
-			if yy > 56.0:
+			if yy > 55.0:
 				break
 			_t(rr.position + Vector2(6, yy), String(ml[0]), GREEN if bool(ml[1]) else RED, 7)
 			yy += 8.0
@@ -1476,8 +1553,9 @@ func _draw_armory(mouse: Vector2) -> void:
 		var rr2 := Rect2(262, 72.0 + float(i) * 25.0, 194, 23)
 		var rc2 := Gear.rarity_color(key2) if Items.rarity_of(key2) > 0 else Color(0, 0, 0, 0)
 		_card(rr2, UiSkin.State.HOVER if rr2.has_point(mouse) else UiSkin.State.NORMAL, 0.95, rc2)
-		_t(rr2.position + Vector2(6, 11), Gear.name_of(key2), Gear.rarity_color(key2) if Items.rarity_of(key2) > 0 else GOLD, 8, HORIZONTAL_ALIGNMENT_LEFT, 120.0)
-		_t(rr2.position + Vector2(6, 20), Gear.SLOT_NAMES[Gear.slot_of(key2)], Color(DIM, 0.9), 6)
+		ItemIcons.draw_inner(self, key2, rr2.position + Vector2(3, 3.5), Items.rarity_of(key2))
+		_t(rr2.position + Vector2(24, 11), Gear.name_of(key2), Gear.rarity_color(key2) if Items.rarity_of(key2) > 0 else GOLD, 8, HORIZONTAL_ALIGNMENT_LEFT, 100.0)
+		_t(rr2.position + Vector2(24, 20), Gear.SLOT_NAMES[Gear.slot_of(key2)], Color(DIM, 0.9), 6)
 		_t(rr2.position + Vector2(0, 15), "+%d" % roundi(float(Gear.price_at(key2, voy.stage)) * 0.5), GOLD, 8, HORIZONTAL_ALIGNMENT_RIGHT, rr2.size.x - 6.0)
 		_register(rr2, "gv%d" % i)
 		_tip(rr2, Tips.gear(key2, voy.stage, false))
@@ -1595,12 +1673,13 @@ func _draw_perks(mouse: Vector2) -> void:
 	var n := voy.perk_offer.size()
 	for i in n:
 		var p: Dictionary = Perks.DATA[String(voy.perk_offer[i])]
-		var r := Rect2(240.0 - float(n) * 76.0 + float(i) * 152.0 + 4.0, 100, 144, 110)
+		var r := Rect2(240.0 - float(n) * 76.0 + float(i) * 152.0 + 4.0, 92, 144, 134)
 		var hover := r.has_point(mouse)
 		UiSkin.panel(self, r, UiSkin.accent(UiSkin.State.HOVER) if hover else UiSkin.BRONZE_HI, 2, "tile_stone", true, Color.WHITE, hover)
-		_t(Vector2(r.position.x, r.position.y + 21), String(p["name"]), GOLD, 11, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
-		UiSkin.rule(self, r.position.x + 12.0, r.end.x - 12.0, r.position.y + 26.0, UiSkin.BRONZE, false)
-		_wrap(String(p["desc"]), r.position.x + 10.0, r.position.y + 34.0, r.size.x - 20.0, 9, PAPER)
+		ItemIcons.draw_emblem(self, String(voy.perk_offer[i]), Vector2(r.position.x + (r.size.x - float(ItemIcons.EMBLEM)) * 0.5, r.position.y + 9.0), Color.WHITE if hover else Color(0.92, 0.92, 0.92))
+		_t(Vector2(r.position.x, r.position.y + 58), String(p["name"]), GOLD, 11, HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 8.0)
+		UiSkin.rule(self, r.position.x + 12.0, r.end.x - 12.0, r.position.y + 63.0, UiSkin.BRONZE, false)
+		_wrap(String(p["desc"]), r.position.x + 10.0, r.position.y + 71.0, r.size.x - 20.0, 9, PAPER)
 		_t(Vector2(r.position.x, r.end.y - 8), str(i + 1), DIM, 9, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
 		_register(r, "p%d" % i)
 
@@ -2474,7 +2553,7 @@ func _draw_fight_prep(mouse: Vector2) -> void:
 	_t(Vector2(24, 34), "Aufstellung", GOLD, 16, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _lore)
 	_t(Vector2(24, 34), "gegen: %s" % String(Foes.FORMATIONS[formation]["name"]), RED, 9, HORIZONTAL_ALIGNMENT_RIGHT, 424.0)
 	UiSkin.rule(self, 24.0, 456.0, 39.0, UiSkin.BRONZE, false)
-	_t(Vector2(24, 50), "Bis zu vier Männer kämpfen, die anderen bleiben zurück. Wer zuerst steht, kämpft vorn. Auf die Symbole klicken wählt die Fertigkeiten.", DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 430.0)
+	_t(Vector2(24, 50), "Bis zu vier Männer kämpfen, der Rest bleibt zurück. Wer zuerst steht, kämpft vorn. Symbole anklicken: Fertigkeiten wählen.", DIM, 7, HORIZONTAL_ALIGNMENT_LEFT, 430.0)
 	var pool: Array = voy.fight_prep.get("pool", [])
 	var party: Array = voy.fight_prep.get("party", [])
 	# links: alle Männer

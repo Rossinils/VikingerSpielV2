@@ -425,14 +425,30 @@ static func skill_short(c: Combat, f: Combat.Fighter, sid: String) -> Array:
 	if fx.has("cleanse"):
 		return ["löst Betäubung,", "Blutung, Tinte"]
 	if fx.has("buff"):
-		return ["Schaden +25 %", "alle, %s" % left if tgt == "allies" else "%d Runden" % int(fx["buff"])]
+		var rounds := "%d Runden" % int(fx["buff"])
+		return ["Schaden +25 %", ("alle, " + rounds) if tgt == "allies" else rounds]
 	if fx.has("heal"):
-		return ["Kraft +%d" % int(fx["heal"]), left]
+		return ["Kraft +%d" % int(fx["heal"]), left if left != "" else "für einen Mann"]
 	if fx.has("stress_heal"):
-		return ["Mut +%d" % int(fx["stress_heal"]), left]
+		return ["Mut +%d" % int(fx["stress_heal"]), left if left != "" else "für einen Mann"]
 	if fx.has("reload"):
 		return ["lädt die", "Muskete"]
-	return [String(sk["desc"]).substr(0, 18), ""]
+	return _two_lines(String(sk["desc"]), 18)
+
+
+## Teilt einen Text an Wortgrenzen auf zwei Zeilen zu höchstens n Zeichen (die zweite endet bei Bedarf mit …),
+## damit Kartentexte nie mitten im Wort abbrechen.
+static func _two_lines(text: String, n: int) -> Array:
+	var first := ""
+	var rest := ""
+	for word in text.split(" "):
+		if rest == "" and (first == "" or first.length() + 1 + word.length() <= n):
+			first = word if first == "" else first + " " + word
+		else:
+			rest = word if rest == "" else rest + " " + word
+	if rest.length() > n:
+		rest = rest.substr(0, n - 1).rstrip(" ,.") + "…"
+	return [first, rest]
 
 
 static func skill(c: Combat, f: Combat.Fighter, sid: String) -> Dictionary:
